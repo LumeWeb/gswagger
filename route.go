@@ -81,6 +81,7 @@ type ContentValue struct {
 	Content     Content
 	Description string
 	Headers     map[string]string
+	Required    bool
 }
 
 type SecurityRequirements []SecurityRequirement
@@ -135,7 +136,9 @@ const (
 func (r Router[HandlerFunc, Route]) AddRoute(method string, path string, handler HandlerFunc, schema Definitions) (Route, error) {
 	operation := newOperationFromDefinition(schema)
 
-	// Process parameters from Definitions.Parameters
+	// Process parameters from Definitions.Parameters, ensuring path params come first
+	var pathParams, otherParams []*openapi3.Parameter
+
 	for name, paramDef := range schema.Parameters {
 		param := &openapi3.Parameter{
 			In:          paramDef.In,
@@ -160,6 +163,18 @@ func (r Router[HandlerFunc, Route]) AddRoute(method string, path string, handler
 			param.Schema = &openapi3.SchemaRef{Value: schema}
 		}
 
+		if paramDef.In == pathParamsType {
+			pathParams = append(pathParams, param)
+		} else {
+			otherParams = append(otherParams, param)
+		}
+	}
+
+	// Add path parameters first, then others
+	for _, param := range pathParams {
+		operation.AddParameter(param)
+	}
+	for _, param := range otherParams {
 		operation.AddParameter(param)
 	}
 
@@ -307,8 +322,17 @@ func (r Router[_, _]) resolveRequestBodySchema(bodySchema *ContentValue, operati
 
 	requestBody := openapi3.NewRequestBody().WithContent(content)
 
+	requestBody.WithDescription(bodySchema.Description)
+	// Only set required=true for JSON content when description is present
 	if bodySchema.Description != "" {
-		requestBody.WithDescription(bodySchema.Description)
+		for contentType := range bodySchema.Content {
+			if contentType == jsonType {
+				requestBody.Required = true
+				break
+			}
+		}
+	} else {
+		requestBody.Required = bodySchema.Required
 	}
 
 	operation.AddRequestBody(requestBody)
