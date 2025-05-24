@@ -1,0 +1,36 @@
+{
+  "info": {
+    "title": "test openapi title",
+    "version": "test openapi version"
+  },
+  "openapi": "3.0.0",
+  "paths": {
+    "/prioritization-test": {
+      "get": {
+        "parameters": [
+          {
+            "description": "Parameter from Definitions.Parameters",
+            "in": "query",
+            "name": "testParam",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    }
+  }
+}
