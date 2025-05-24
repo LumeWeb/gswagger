@@ -15,9 +15,6 @@ import (
 	"go.lumeweb.com/gswagger/support/testutils"
 )
 
-const jsonType = "application/json"
-const formDataType = "multipart/form-data"
-
 type TestRouter = Router[gorilla.HandlerFunc, gorilla.Route]
 
 var muxRouter *mux.Router
