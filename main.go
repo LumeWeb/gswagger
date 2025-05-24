@@ -49,6 +49,11 @@ func (r *Router[HandlerFunc, Route]) Router() apirouter.Router[HandlerFunc, Rout
 	return r.router
 }
 
+// SwaggerSchema returns the OpenAPI schema being used by the router
+func (r *Router[HandlerFunc, Route]) SwaggerSchema() *openapi3.T {
+	return r.swaggerSchema
+}
+
 // Options to be passed to create the new router and swagger
 type Options struct {
 	Context context.Context
