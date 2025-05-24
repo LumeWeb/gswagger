@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/davidebianchi/gswagger/apirouter"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/ghodss/yaml"
+	"go.lumeweb.com/gswagger/apirouter"
 )
 
 var (

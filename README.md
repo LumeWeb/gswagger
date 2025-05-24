@@ -1,15 +1,12 @@
 <div align="center">
 
-[![Build Status][github-actions-svg]][github-actions]
-[![Coverage Status](https://coveralls.io/repos/github/davidebianchi/gswagger/badge.svg?branch=main)](https://coveralls.io/github/davidebianchi/gswagger?branch=main)
-[![Go Report Card][go-report-card]][go-report-card-link]
-[![GoDoc][godoc-svg]][godoc-link]
-
 # gswagger
 
 </div>
 
-Generate an openapi spec dynamically based on the types used to handle request and response.
+This is a maintained fork of [gswagger](https://github.com/davidebianchi/gswagger) originally created by Davide Bianchi, now maintained by Lume Web.
+
+Generate an OpenAPI spec dynamically based on the types used to handle request and response.
 
 It works with any router, it is simple to add support to your router implementing the [apirouter](apirouter/router.go) interface.
 
@@ -30,7 +27,7 @@ It is always possible to add a totally custom swagger schema using [kin-openapi]
 To use it, install with
 
 ```sh
-go get github.com/davidebianchi/gswagger
+go get go.lumeweb.com/gswagger
 ```
 
 ## Usage
@@ -164,16 +161,10 @@ You can create manually a swagger with `oneOf` using the `AddRawRoute` method, o
 
 ## Versioning
 
-We use [SemVer][semver] for versioning. For the versions available,
-see the [tags on this repository](https://github.com/davidebianchi/gswagger/tags).
+We use [SemVer](https://semver.org/) for versioning. For the versions available,
+see the tags on this repository.
 
-<!-- Reference -->
-[kin-openapi]: https://github.com/getkin/kin-openapi
-[jsonschema]: https://github.com/mia-platform/jsonschema
-[github-actions]: https://github.com/davidebianchi/gswagger/actions
-[github-actions-svg]: https://github.com/davidebianchi/gswagger/workflows/Test%20and%20build/badge.svg
-[godoc-svg]: https://godoc.org/github.com/davidebianchi/gswagger?status.svg
-[godoc-link]: https://godoc.org/github.com/davidebianchi/gswagger
-[go-report-card]: https://goreportcard.com/badge/github.com/davidebianchi/gswagger
-[go-report-card-link]: https://goreportcard.com/report/github.com/davidebianchi/gswagger
-[semver]: https://semver.org/
+## Acknowledgements
+
+This project is based on the excellent work of Davide Bianchi's [gswagger](https://github.com/davidebianchi/gswagger).
+Lume Web maintains this fork with specific modifications while preserving all original functionality.

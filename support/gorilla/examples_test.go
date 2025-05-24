@@ -8,9 +8,9 @@ import (
 	"os"
 	"testing"
 
-	swagger "github.com/davidebianchi/gswagger"
-	"github.com/davidebianchi/gswagger/support/gorilla"
 	"github.com/stretchr/testify/require"
+	swagger "go.lumeweb.com/gswagger"
+	"go.lumeweb.com/gswagger/support/gorilla"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/gorilla/mux"

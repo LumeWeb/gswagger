@@ -8,12 +8,12 @@ import (
 	"os"
 	"testing"
 
-	oasEcho "github.com/davidebianchi/gswagger/support/echo"
+	oasEcho "go.lumeweb.com/gswagger/support/echo"
 
-	swagger "github.com/davidebianchi/gswagger"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/require"
+	swagger "go.lumeweb.com/gswagger"
 )
 
 const (

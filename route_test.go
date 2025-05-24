@@ -8,10 +8,10 @@ import (
 	"os"
 	"testing"
 
-	"github.com/davidebianchi/gswagger/support/gorilla"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/require"
+	"go.lumeweb.com/gswagger/support/gorilla"
 )
 
 const jsonType = "application/json"

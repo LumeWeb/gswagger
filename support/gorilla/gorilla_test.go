@@ -6,9 +6,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/davidebianchi/gswagger/apirouter"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/require"
+	"go.lumeweb.com/gswagger/apirouter"
 )
 
 func TestGorillaMuxRouter(t *testing.T) {

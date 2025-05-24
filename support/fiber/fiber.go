@@ -1,8 +1,8 @@
 package fiber
 
 import (
-	"github.com/davidebianchi/gswagger/apirouter"
 	"github.com/gofiber/fiber/v2"
+	"go.lumeweb.com/gswagger/apirouter"
 )
 
 type HandlerFunc = fiber.Handler

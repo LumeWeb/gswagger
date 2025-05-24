@@ -8,8 +8,8 @@ import (
 	"os"
 	"testing"
 
-	swagger "github.com/davidebianchi/gswagger"
-	oasFiber "github.com/davidebianchi/gswagger/support/fiber"
+	swagger "go.lumeweb.com/gswagger"
+	oasFiber "go.lumeweb.com/gswagger/support/fiber"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/gofiber/fiber/v2"

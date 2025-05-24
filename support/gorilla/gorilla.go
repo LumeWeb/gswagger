@@ -1,7 +1,7 @@
 package gorilla
 
 import (
-	"github.com/davidebianchi/gswagger/apirouter"
+	"go.lumeweb.com/gswagger/apirouter"
 
 	"net/http"
 

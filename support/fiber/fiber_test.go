@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/davidebianchi/gswagger/apirouter"
+	"go.lumeweb.com/gswagger/apirouter"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/stretchr/testify/require"
