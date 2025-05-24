@@ -857,6 +857,7 @@ func TestResolveRequestBodySchema(t *testing.T) {
 				Content: Content{
 					jsonType: {Value: &TestStruct{}},
 				},
+				Required: true,
 			},
 			expectedJSON: `{
 				"requestBody": {
@@ -870,7 +871,8 @@ func TestResolveRequestBodySchema(t *testing.T) {
 								}
 							}
 						}
-					}
+					},
+					"required": true
 				},
 				"responses": null
 			}`,
@@ -889,6 +891,7 @@ func TestResolveRequestBodySchema(t *testing.T) {
 			expectedJSON: `{
 				"requestBody": {
 					"description": "my custom description",
+					"required": true,
 					"content": {
 						"application/json": {
 							"schema": {
