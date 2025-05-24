@@ -1,0 +1,51 @@
+{
+  "info": {
+    "title": "test openapi title",
+    "version": "test openapi version"
+  },
+  "openapi": "3.0.0",
+  "paths": {
+    "/multi-response-headers": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "",
+            "headers": {
+              "X-Success-Header": {
+                "description": "Success indicator",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Bad Request",
+            "headers": {
+              "X-Error-Header": {
+                "description": "Error details",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

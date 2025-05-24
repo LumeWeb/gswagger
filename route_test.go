@@ -12,6 +12,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/require"
 	"go.lumeweb.com/gswagger/support/gorilla"
+	"go.lumeweb.com/gswagger/support/testutils"
 )
 
 const jsonType = "application/json"
@@ -19,7 +20,244 @@ const formDataType = "multipart/form-data"
 
 type TestRouter = Router[gorilla.HandlerFunc, gorilla.Route]
 
+var muxRouter *mux.Router
+
+func setupRouter(t *testing.T) (*TestRouter, error) {
+	t.Helper()
+
+	ctx := context.Background()
+	muxRouter = mux.NewRouter()
+
+	router, err := NewRouter(gorilla.NewRouter(muxRouter), Options{
+		Context: ctx,
+		Openapi: getBaseSwagger(t),
+	})
+	require.NoError(t, err)
+
+	return router, nil
+}
+
+func okHandler(w http.ResponseWriter, req *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`OK`))
+}
+
 func TestAddRoutes(t *testing.T) {
+	t.Run("schema with path and cookie parameters from Definitions.Parameters", func(t *testing.T) {
+		router, _ := setupRouter(t)
+
+		route, err := router.AddRoute(http.MethodGet, "/users/{userId}", okHandler, Definitions{
+			Parameters: map[string]ParameterDefinition{
+				"userId": {
+					In:          "path",
+					Required:    true,
+					Description: "ID of the user",
+					Schema:      &Schema{Value: 0}, // Test with integer schema
+				},
+				"sessionToken": {
+					In:          "cookie",
+					Required:    false,
+					Description: "Optional session token",
+					Schema:      &Schema{Value: ""}, // Test with string schema
+				},
+			},
+			Responses: map[int]ContentValue{
+				200: {
+					Content: Content{
+						"application/json": {Value: ""},
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, route)
+
+		err = router.GenerateAndExposeOpenapi()
+		require.NoError(t, err)
+
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, DefaultJSONDocumentationPath, nil)
+		muxRouter.ServeHTTP(w, req)
+
+		err = router.GenerateAndExposeOpenapi()
+		require.NoError(t, err)
+
+		require.Equal(t, http.StatusOK, w.Result().StatusCode)
+		body := readBody(t, w.Result().Body)
+
+		testutils.AssertJSONMatchesFile(t, []byte(body), "testdata/schema-path-cookie-params.json")
+	})
+
+	t.Run("schema with parameter using Content", func(t *testing.T) {
+		router, _ := setupRouter(t)
+
+		type ParamContent struct {
+			Value string `json:"value"`
+		}
+
+		route, err := router.AddRoute(http.MethodGet, "/test-content-param", okHandler, Definitions{
+			Parameters: map[string]ParameterDefinition{
+				"contentParam": {
+					In:          "query",
+					Required:    true,
+					Description: "Parameter with content",
+					Content: Content{
+						"application/json": {Value: ParamContent{}},
+					},
+				},
+			},
+			Responses: map[int]ContentValue{
+				200: {
+					Content: Content{
+						"application/json": {Value: ""},
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, route)
+
+		err = router.GenerateAndExposeOpenapi()
+		require.NoError(t, err)
+
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, DefaultJSONDocumentationPath, nil)
+		muxRouter.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Result().StatusCode)
+		body := readBody(t, w.Result().Body)
+
+		testutils.AssertJSONMatchesFile(t, []byte(body), "testdata/schema-content-param.json")
+	})
+
+	t.Run("schema with headers in multiple responses", func(t *testing.T) {
+		router, _ := setupRouter(t)
+
+		route, err := router.AddRoute(http.MethodGet, "/multi-response-headers", okHandler, Definitions{
+			Responses: map[int]ContentValue{
+				200: {
+					Content: Content{
+						"application/json": {Value: ""},
+					},
+					Headers: map[string]string{
+						"X-Success-Header": "Success indicator",
+					},
+				},
+				400: {
+					Content: Content{
+						"application/json": {Value: ""},
+					},
+					Headers: map[string]string{
+						"X-Error-Header": "Error details",
+					},
+					Description: "Bad Request",
+				},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, route)
+
+		err = router.GenerateAndExposeOpenapi()
+		require.NoError(t, err)
+
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, DefaultJSONDocumentationPath, nil)
+		muxRouter.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Result().StatusCode)
+		body := readBody(t, w.Result().Body)
+
+		testutils.AssertJSONMatchesFile(t, []byte(body), "testdata/schema-multi-response-headers.json")
+	})
+
+	t.Run("schema with parameters and response headers", func(t *testing.T) {
+		router, _ := setupRouter(t)
+
+		route, err := router.AddRoute(http.MethodGet, "/test", okHandler, Definitions{
+			Parameters: map[string]ParameterDefinition{
+				"queryParam": {
+					In:          "query",
+					Required:    true,
+					Description: "required query param",
+					Schema:      &Schema{Value: ""},
+				},
+				"headerParam": {
+					In:          "header",
+					Required:    false,
+					Description: "optional header param",
+					Schema:      &Schema{Value: 0},
+				},
+			},
+			Responses: map[int]ContentValue{
+				200: {
+					Content: Content{
+						"application/json": {Value: ""},
+					},
+					Headers: map[string]string{
+						"X-RateLimit-Limit": "Request rate limit",
+						"X-Request-ID":      "Request identifier",
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, route)
+
+		err = router.GenerateAndExposeOpenapi()
+		require.NoError(t, err)
+
+		// Verify the generated OpenAPI schema contains the parameters and headers
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, DefaultJSONDocumentationPath, nil)
+		muxRouter.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Result().StatusCode)
+		body := readBody(t, w.Result().Body)
+
+		testutils.AssertJSONMatchesFile(t, []byte(body), "testdata/schema-params-response-headers.json")
+	})
+
+	t.Run("prioritizes Definitions.Parameters over older parameter fields", func(t *testing.T) {
+		router, _ := setupRouter(t)
+
+		route, err := router.AddRoute(http.MethodGet, "/prioritization-test", okHandler, Definitions{
+			Parameters: map[string]ParameterDefinition{
+				"testParam": {
+					In:          "query",
+					Required:    true,
+					Description: "Parameter from Definitions.Parameters",
+					Schema:      &Schema{Value: 123}, // Integer schema
+				},
+			},
+			Querystring: ParameterValue{
+				"testParam": {
+					Schema:      &Schema{Value: "abc"}, // String schema (should be ignored)
+					Description: "Parameter from Querystring",
+				},
+			},
+			Responses: map[int]ContentValue{
+				200: {
+					Content: Content{
+						"application/json": {Value: ""},
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, route)
+
+		err = router.GenerateAndExposeOpenapi()
+		require.NoError(t, err)
+
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, DefaultJSONDocumentationPath, nil)
+		muxRouter.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Result().StatusCode)
+		body := readBody(t, w.Result().Body)
+
+		testutils.AssertJSONMatchesFile(t, []byte(body), "testdata/schema-prioritization.json")
+	})
 	type User struct {
 		Name        string   `json:"name" jsonschema:"title=The user name,required" jsonschema_extras:"example=Jane"`
 		PhoneNumber int      `json:"phone" jsonschema:"title=mobile number of user"`
@@ -51,11 +289,6 @@ func TestAddRoutes(t *testing.T) {
 		UserType  string      `json:"userType,omitempty" jsonschema:"title=type of user,enum=simple,enum=advanced"`
 	}
 
-	okHandler := func(w http.ResponseWriter, req *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
-	}
-
 	tests := []struct {
 		name         string
 		routes       func(t *testing.T, router *TestRouter)
@@ -71,8 +304,9 @@ func TestAddRoutes(t *testing.T) {
 		{
 			name: "empty route schema",
 			routes: func(t *testing.T, router *TestRouter) {
-				_, err := router.AddRoute(http.MethodPost, "/", okHandler, Definitions{})
+				route, err := router.AddRoute(http.MethodPost, "/", okHandler, Definitions{})
 				require.NoError(t, err)
+				require.NotNil(t, route)
 			},
 			testPath:     "/",
 			testMethod:   http.MethodPost,
@@ -81,7 +315,7 @@ func TestAddRoutes(t *testing.T) {
 		{
 			name: "multiple real routes",
 			routes: func(t *testing.T, router *TestRouter) {
-				_, err := router.AddRoute(http.MethodPost, "/users", okHandler, Definitions{
+				route, err := router.AddRoute(http.MethodPost, "/users", okHandler, Definitions{
 					RequestBody: &ContentValue{
 						Content: Content{
 							jsonType: {Value: User{}},
@@ -102,8 +336,9 @@ func TestAddRoutes(t *testing.T) {
 					},
 				})
 				require.NoError(t, err)
+				require.NotNil(t, route)
 
-				_, err = router.AddRoute(http.MethodGet, "/users", okHandler, Definitions{
+				route, err = router.AddRoute(http.MethodGet, "/users", okHandler, Definitions{
 					Responses: map[int]ContentValue{
 						200: {
 							Content: Content{
@@ -113,8 +348,9 @@ func TestAddRoutes(t *testing.T) {
 					},
 				})
 				require.NoError(t, err)
+				require.NotNil(t, route)
 
-				_, err = router.AddRoute(http.MethodGet, "/employees", okHandler, Definitions{
+				route, err = router.AddRoute(http.MethodGet, "/employees", okHandler, Definitions{
 					Responses: map[int]ContentValue{
 						200: {
 							Content: Content{
@@ -124,6 +360,7 @@ func TestAddRoutes(t *testing.T) {
 					},
 				})
 				require.NoError(t, err)
+				require.NotNil(t, route)
 			},
 			testPath:     "/users",
 			fixturesPath: "testdata/users_employees.json",
@@ -131,7 +368,7 @@ func TestAddRoutes(t *testing.T) {
 		{
 			name: "multipart request body",
 			routes: func(t *testing.T, router *TestRouter) {
-				_, err := router.AddRoute(http.MethodPost, "/files", okHandler, Definitions{
+				route, err := router.AddRoute(http.MethodPost, "/files", okHandler, Definitions{
 					RequestBody: &ContentValue{
 						Content: Content{
 							formDataType: {
@@ -152,6 +389,7 @@ func TestAddRoutes(t *testing.T) {
 					},
 				})
 				require.NoError(t, err)
+				require.NotNil(t, route)
 			},
 			testPath:     "/files",
 			testMethod:   http.MethodPost,
@@ -161,7 +399,7 @@ func TestAddRoutes(t *testing.T) {
 			name: "schema with params",
 			routes: func(t *testing.T, router *TestRouter) {
 				var number = 0
-				_, err := router.AddRoute(http.MethodGet, "/users/{userId}", okHandler, Definitions{
+				route, err := router.AddRoute(http.MethodGet, "/users/{userId}", okHandler, Definitions{
 					PathParams: ParameterValue{
 						"userId": {
 							Schema:      &Schema{Value: number},
@@ -170,8 +408,9 @@ func TestAddRoutes(t *testing.T) {
 					},
 				})
 				require.NoError(t, err)
+				require.NotNil(t, route)
 
-				_, err = router.AddRoute(http.MethodGet, "/cars/{carId}/drivers/{driverId}", okHandler, Definitions{
+				route, err = router.AddRoute(http.MethodGet, "/cars/{carId}/drivers/{driverId}", okHandler, Definitions{
 					PathParams: ParameterValue{
 						"carId": {
 							Schema: &Schema{Value: ""},
@@ -182,6 +421,7 @@ func TestAddRoutes(t *testing.T) {
 					},
 				})
 				require.NoError(t, err)
+				require.NotNil(t, route)
 			},
 			testPath:     "/users/12",
 			fixturesPath: "testdata/params.json",
@@ -189,7 +429,7 @@ func TestAddRoutes(t *testing.T) {
 		{
 			name: "schema without explicit params autofill them",
 			routes: func(t *testing.T, router *TestRouter) {
-				_, err := router.AddRoute(http.MethodGet, "/users/{userId}", okHandler, Definitions{
+				route, err := router.AddRoute(http.MethodGet, "/users/{userId}", okHandler, Definitions{
 					Querystring: ParameterValue{
 						"query": {
 							Schema: &Schema{Value: ""},
@@ -197,12 +437,15 @@ func TestAddRoutes(t *testing.T) {
 					},
 				})
 				require.NoError(t, err)
+				require.NotNil(t, route)
 
-				_, err = router.AddRoute(http.MethodGet, "/cars/{carId}/drivers/{driverId}", okHandler, Definitions{})
+				route, err = router.AddRoute(http.MethodGet, "/cars/{carId}/drivers/{driverId}", okHandler, Definitions{})
 				require.NoError(t, err)
+				require.NotNil(t, route)
 
-				_, err = router.AddRoute(http.MethodGet, "/files/{name}.{extension}", okHandler, Definitions{})
+				route, err = router.AddRoute(http.MethodGet, "/files/{name}.{extension}", okHandler, Definitions{})
 				require.NoError(t, err)
+				require.NotNil(t, route)
 			},
 			testPath:     "/files/myid.yaml",
 			fixturesPath: "testdata/params-autofill.json",
@@ -210,7 +453,7 @@ func TestAddRoutes(t *testing.T) {
 		{
 			name: "schema with querystring",
 			routes: func(t *testing.T, router *TestRouter) {
-				_, err := router.AddRoute(http.MethodGet, "/projects", okHandler, Definitions{
+				route, err := router.AddRoute(http.MethodGet, "/projects", okHandler, Definitions{
 					Querystring: ParameterValue{
 						"projectId": {
 							Schema:      &Schema{Value: ""},
@@ -219,6 +462,7 @@ func TestAddRoutes(t *testing.T) {
 					},
 				})
 				require.NoError(t, err)
+				require.NotNil(t, route)
 			},
 			testPath:     "/projects",
 			fixturesPath: "testdata/query.json",
@@ -226,7 +470,7 @@ func TestAddRoutes(t *testing.T) {
 		{
 			name: "schema with headers",
 			routes: func(t *testing.T, router *TestRouter) {
-				_, err := router.AddRoute(http.MethodGet, "/projects", okHandler, Definitions{
+				route, err := router.AddRoute(http.MethodGet, "/projects", okHandler, Definitions{
 					Headers: ParameterValue{
 						"foo": {
 							Schema:      &Schema{Value: ""},
@@ -238,6 +482,7 @@ func TestAddRoutes(t *testing.T) {
 					},
 				})
 				require.NoError(t, err)
+				require.NotNil(t, route)
 			},
 			testPath:     "/projects",
 			fixturesPath: "testdata/headers.json",
@@ -245,7 +490,7 @@ func TestAddRoutes(t *testing.T) {
 		{
 			name: "schema with cookies",
 			routes: func(t *testing.T, router *TestRouter) {
-				_, err := router.AddRoute(http.MethodGet, "/projects", okHandler, Definitions{
+				route, err := router.AddRoute(http.MethodGet, "/projects", okHandler, Definitions{
 					Cookies: ParameterValue{
 						"debug": {
 							Schema:      &Schema{Value: 0},
@@ -257,6 +502,7 @@ func TestAddRoutes(t *testing.T) {
 					},
 				})
 				require.NoError(t, err)
+				require.NotNil(t, route)
 			},
 			testPath:     "/projects",
 			fixturesPath: "testdata/cookies.json",
@@ -264,7 +510,7 @@ func TestAddRoutes(t *testing.T) {
 		{
 			name: "schema defined without value",
 			routes: func(t *testing.T, router *TestRouter) {
-				_, err := router.AddRoute(http.MethodPost, "/{id}", okHandler, Definitions{
+				route, err := router.AddRoute(http.MethodPost, "/{id}", okHandler, Definitions{
 					RequestBody: &ContentValue{
 						Description: "request body without schema",
 					},
@@ -285,6 +531,7 @@ func TestAddRoutes(t *testing.T) {
 					},
 				})
 				require.NoError(t, err)
+				require.NotNil(t, route)
 			},
 			testPath:     "/foobar",
 			testMethod:   http.MethodPost,
@@ -314,8 +561,9 @@ func TestAddRoutes(t *testing.T) {
 				allOperation.AddResponse(200, response)
 				allOperation.AddRequestBody(request)
 
-				_, err := router.AddRawRoute(http.MethodPost, "/all-of", okHandler, allOperation)
+				route, err := router.AddRawRoute(http.MethodPost, "/all-of", okHandler, allOperation)
 				require.NoError(t, err)
+				require.NotNil(t, route)
 
 				nestedSchema := openapi3.NewSchema()
 				nestedSchema.Properties = map[string]*openapi3.SchemaRef{
@@ -330,8 +578,9 @@ func TestAddRoutes(t *testing.T) {
 				nestedAllOfOperation := NewOperation()
 				nestedAllOfOperation.AddResponse(200, responseNested)
 
-				_, err = router.AddRawRoute(http.MethodGet, "/nested-schema", okHandler, nestedAllOfOperation)
+				route, err = router.AddRawRoute(http.MethodGet, "/nested-schema", okHandler, nestedAllOfOperation)
 				require.NoError(t, err)
+				require.NotNil(t, route)
 			},
 			fixturesPath: "testdata/allof.json",
 		},
@@ -358,8 +607,9 @@ func TestAddRoutes(t *testing.T) {
 				allOperation.AddResponse(200, response)
 				allOperation.AddRequestBody(request)
 
-				_, err := router.AddRawRoute(http.MethodPost, "/any-of", okHandler, allOperation)
+				route, err := router.AddRawRoute(http.MethodPost, "/any-of", okHandler, allOperation)
 				require.NoError(t, err)
+				require.NotNil(t, route)
 
 				nestedSchema := openapi3.NewSchema()
 				nestedSchema.Properties = map[string]*openapi3.SchemaRef{
@@ -374,15 +624,16 @@ func TestAddRoutes(t *testing.T) {
 				nestedAnyOfOperation := NewOperation()
 				nestedAnyOfOperation.AddResponse(200, responseNested)
 
-				_, err = router.AddRawRoute(http.MethodGet, "/nested-schema", okHandler, nestedAnyOfOperation)
+				route, err = router.AddRawRoute(http.MethodGet, "/nested-schema", okHandler, nestedAnyOfOperation)
 				require.NoError(t, err)
+				require.NotNil(t, route)
 			},
 			fixturesPath: "testdata/anyof.json",
 		},
 		{
 			name: "oneOf and enum are supported on properties",
 			routes: func(t *testing.T, router *TestRouter) {
-				_, err := router.AddRoute(http.MethodPost, "/user-profile", okHandler, Definitions{
+				route, err := router.AddRoute(http.MethodPost, "/user-profile", okHandler, Definitions{
 					RequestBody: &ContentValue{
 						Content: Content{
 							"application/json": {
@@ -399,6 +650,7 @@ func TestAddRoutes(t *testing.T) {
 					},
 				})
 				require.NoError(t, err)
+				require.NotNil(t, route)
 
 				schema := openapi3.NewOneOfSchema()
 				schema.OneOf = []*openapi3.SchemaRef{
@@ -420,8 +672,9 @@ func TestAddRoutes(t *testing.T) {
 				allOperation.AddResponse(200, response)
 				allOperation.AddRequestBody(request)
 
-				_, err = router.AddRawRoute(http.MethodPost, "/one-of", okHandler, allOperation)
+				route, err = router.AddRawRoute(http.MethodPost, "/one-of", okHandler, allOperation)
 				require.NoError(t, err)
+				require.NotNil(t, route)
 			},
 			testPath:     "/user-profile",
 			testMethod:   http.MethodPost,
@@ -430,10 +683,11 @@ func TestAddRoutes(t *testing.T) {
 		{
 			name: "schema with tags",
 			routes: func(t *testing.T, router *TestRouter) {
-				_, err := router.AddRoute(http.MethodGet, "/users", okHandler, Definitions{
+				route, err := router.AddRoute(http.MethodGet, "/users", okHandler, Definitions{
 					Tags: []string{"Tag1", "Tag2"},
 				})
 				require.NoError(t, err)
+				require.NotNil(t, route)
 			},
 			testPath:     "/users",
 			fixturesPath: "testdata/tags.json",
@@ -441,7 +695,7 @@ func TestAddRoutes(t *testing.T) {
 		{
 			name: "schema with security",
 			routes: func(t *testing.T, router *TestRouter) {
-				_, err := router.AddRoute(http.MethodGet, "/users", okHandler, Definitions{
+				route, err := router.AddRoute(http.MethodGet, "/users", okHandler, Definitions{
 					Security: SecurityRequirements{
 						SecurityRequirement{
 							"api_key": []string{},
@@ -452,6 +706,7 @@ func TestAddRoutes(t *testing.T) {
 					},
 				})
 				require.NoError(t, err)
+				require.NotNil(t, route)
 			},
 			testPath:     "/users",
 			fixturesPath: "testdata/security.json",
@@ -459,7 +714,7 @@ func TestAddRoutes(t *testing.T) {
 		{
 			name: "schema with extension",
 			routes: func(t *testing.T, router *TestRouter) {
-				_, err := router.AddRoute(http.MethodGet, "/users", okHandler, Definitions{
+				route, err := router.AddRoute(http.MethodGet, "/users", okHandler, Definitions{
 					Extensions: map[string]interface{}{
 						"x-extension-field": map[string]string{
 							"foo": "bar",
@@ -467,6 +722,7 @@ func TestAddRoutes(t *testing.T) {
 					},
 				})
 				require.NoError(t, err)
+				require.NotNil(t, route)
 			},
 			testPath:     "/users",
 			fixturesPath: "testdata/extension.json",
@@ -474,7 +730,7 @@ func TestAddRoutes(t *testing.T) {
 		{
 			name: "invalid extension - not starts with x-",
 			routes: func(t *testing.T, router *TestRouter) {
-				_, err := router.AddRoute(http.MethodGet, "/", okHandler, Definitions{
+				route, err := router.AddRoute(http.MethodGet, "/", okHandler, Definitions{
 					Extensions: map[string]interface{}{
 						"extension-field": map[string]string{
 							"foo": "bar",
@@ -482,18 +738,20 @@ func TestAddRoutes(t *testing.T) {
 					},
 				})
 				require.EqualError(t, err, "extra sibling fields: [extension-field]")
+				require.Nil(t, route)
 			},
 			fixturesPath: "testdata/empty.json",
 		},
 		{
 			name: "schema with summary, description, deprecated and operationID",
 			routes: func(t *testing.T, router *TestRouter) {
-				_, err := router.AddRoute(http.MethodGet, "/users", okHandler, Definitions{
+				route, err := router.AddRoute(http.MethodGet, "/users", okHandler, Definitions{
 					Summary:     "small description",
 					Description: "this is the long route description",
 					Deprecated:  true,
 				})
 				require.NoError(t, err)
+				require.NotNil(t, route)
 			},
 			testPath:     "/users",
 			fixturesPath: "testdata/users-deprecated-with-description.json",

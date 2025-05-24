@@ -1,0 +1,58 @@
+{
+  "info": {
+    "title": "test openapi title",
+    "version": "test openapi version"
+  },
+  "openapi": "3.0.0",
+  "paths": {
+    "/test": {
+      "get": {
+        "parameters": [
+          {
+            "description": "required query param",
+            "in": "query",
+            "name": "queryParam",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "optional header param",
+            "in": "header",
+            "name": "headerParam",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "",
+            "headers": {
+              "X-RateLimit-Limit": {
+                "description": "Request rate limit",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "description": "Request identifier",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

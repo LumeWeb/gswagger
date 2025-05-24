@@ -60,7 +60,7 @@ func TestFiberIntegration(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			body := readBody(t, resp.Body)
-			require.JSONEq(t, readFile(t, "../testdata/integration.json"), body, body)
+			testutils.AssertJSONMatchesFile(t, []byte(body), "../testdata/integration.json")
 		})
 	})
 
@@ -108,7 +108,7 @@ func TestFiberIntegration(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			body := readBody(t, resp.Body)
-			require.JSONEq(t, readFile(t, "../testdata/intergation-subrouter.json"), body, body)
+			testutils.AssertJSONMatchesFile(t, []byte(body), "../testdata/intergation-subrouter.json")
 		})
 	})
 }
@@ -145,6 +145,7 @@ func okHandler(c *fiber.Ctx) error {
 	c.Status(http.StatusOK)
 	return c.SendString("OK")
 }
+
 
 func readBody(t *testing.T, requestBody io.ReadCloser) string {
 	t.Helper()

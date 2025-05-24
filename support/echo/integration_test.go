@@ -14,6 +14,8 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/require"
 	swagger "go.lumeweb.com/gswagger"
+	"go.lumeweb.com/gswagger/support/testutils"
+	"go.lumeweb.com/gswagger/support/testutils"
 )
 
 const (
@@ -63,7 +65,7 @@ func TestEchoIntegration(t *testing.T) {
 			require.Equal(t, http.StatusOK, w.Result().StatusCode)
 
 			body := readBody(t, w.Result().Body)
-			require.JSONEq(t, readFile(t, "../testdata/integration.json"), body)
+			testutils.AssertJSONMatchesFile(t, []byte(body), "../testdata/integration.json")
 		})
 	})
 

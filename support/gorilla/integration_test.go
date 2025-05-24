@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	swagger "go.lumeweb.com/gswagger"
 	"go.lumeweb.com/gswagger/support/gorilla"
+	"go.lumeweb.com/gswagger/support/testutils"
 )
 
 const (
@@ -48,7 +49,7 @@ func TestGorillaIntegration(t *testing.T) {
 			require.Equal(t, http.StatusOK, w.Result().StatusCode)
 
 			body := readBody(t, w.Result().Body)
-			require.JSONEq(t, readFile(t, "../testdata/integration.json"), body)
+			testutils.AssertJSONMatchesFile(t, []byte(body), "../testdata/integration.json")
 		})
 	})
 
@@ -100,7 +101,7 @@ func TestGorillaIntegration(t *testing.T) {
 			require.Equal(t, http.StatusOK, w.Result().StatusCode)
 
 			body := readBody(t, w.Result().Body)
-			require.JSONEq(t, readFile(t, "../testdata/intergation-subrouter.json"), body, body)
+			testutils.AssertJSONMatchesFile(t, []byte(body), "../testdata/intergation-subrouter.json")
 		})
 	})
 }
