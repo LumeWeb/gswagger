@@ -130,6 +130,8 @@ const (
 	queryParamType  = "query"
 	headerParamType = "header"
 	cookieParamType = "cookie"
+	jsonType        = "application/json"
+	formDataType    = "multipart/form-data"
 )
 
 // AddRoute add a route with json schema inferred by passed schema.
