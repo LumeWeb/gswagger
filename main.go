@@ -44,6 +44,11 @@ type Router[HandlerFunc, Route any] struct {
 	pathPrefix            string
 }
 
+// Router returns the underlying router implementation
+func (r *Router[HandlerFunc, Route]) Router() apirouter.Router[HandlerFunc, Route] {
+	return r.router
+}
+
 // Options to be passed to create the new router and swagger
 type Options struct {
 	Context context.Context
