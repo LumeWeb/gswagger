@@ -24,6 +24,14 @@ var (
 	ErrValidatingSwagger = ErrValidatingOAS
 )
 
+// GetRouter returns the underlying router instance cast to the specified type.
+// This provides type-safe access to the concrete router implementation.
+// Example:
+//   router := GetRouter[*mux.Router](swaggerRouter)
+func GetRouter[T any, H any, R any](r apirouter.Router[H, R]) T {
+	return r.Router().(T)
+}
+
 const (
 	// DefaultJSONDocumentationPath is the path of the openapi documentation in json format.
 	DefaultJSONDocumentationPath = "/documentation/json"

@@ -32,6 +32,10 @@ func (r gorillaRouter) TransformPathToOasPath(path string) string {
 	return path
 }
 
+func (r gorillaRouter) Router() any {
+	return r.router
+}
+
 func NewRouter(router *mux.Router) apirouter.Router[HandlerFunc, Route] {
 	return gorillaRouter{
 		router: router,
