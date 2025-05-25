@@ -12,6 +12,10 @@ type fiberRouter struct {
 	router fiber.Router
 }
 
+func (r fiberRouter) Router() any {
+	return r.router
+}
+
 func NewRouter(router fiber.Router) apirouter.Router[HandlerFunc, Route] {
 	return fiberRouter{
 		router: router,

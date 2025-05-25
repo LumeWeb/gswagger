@@ -29,6 +29,10 @@ func (r echoRouter) TransformPathToOasPath(path string) string {
 	return apirouter.TransformPathParamsWithColon(path)
 }
 
+func (r echoRouter) Router() any {
+	return r.router
+}
+
 func NewRouter(router *echo.Echo) apirouter.Router[echo.HandlerFunc, Route] {
 	return echoRouter{
 		router: router,

@@ -433,6 +433,42 @@ func TestGenerateAndExposeSwagger(t *testing.T) {
 	})
 }
 
+func TestGetRouter(t *testing.T) {
+	t.Run("gets gorilla router instance", func(t *testing.T) {
+		muxRouter := mux.NewRouter()
+		gorillaRouter := gorilla.NewRouter(muxRouter)
+		router, err := NewRouter(gorillaRouter, Options{
+			Openapi: &openapi3.T{
+				Info: &openapi3.Info{
+					Title:   "test",
+					Version: "1.0",
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		muxRouterFromGetter := GetRouter[*mux.Router](router.Router())
+		require.Equal(t, muxRouter, muxRouterFromGetter)
+	})
+
+	t.Run("panics on wrong type", func(t *testing.T) {
+		muxRouter := mux.NewRouter()
+		router, err := NewRouter(gorilla.NewRouter(muxRouter), Options{
+			Openapi: &openapi3.T{
+				Info: &openapi3.Info{
+					Title:   "test",
+					Version: "1.0",
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		require.Panics(t, func() {
+			_ = GetRouter[string](router.Router())
+		})
+	})
+}
+
 func readBody(t *testing.T, requestBody io.ReadCloser) string {
 	t.Helper()
 
