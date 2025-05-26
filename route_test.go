@@ -15,7 +15,7 @@ import (
 	"go.lumeweb.com/gswagger/support/testutils"
 )
 
-type TestRouter = Router[gorilla.HandlerFunc, gorilla.Route]
+type TestRouter = Router[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]
 
 var muxRouter *mux.Router
 

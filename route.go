@@ -25,7 +25,7 @@ var (
 
 // AddRawRoute add route to router with specific method, path and handler. Add the
 // router also to the openapi schema, after validating it
-func (r Router[HandlerFunc, Route]) AddRawRoute(method string, routePath string, handler HandlerFunc, operation Operation) (Route, error) {
+func (r Router[HandlerFunc, MiddlewareFunc, Route]) AddRawRoute(method string, routePath string, handler HandlerFunc, operation Operation, middleware ...MiddlewareFunc) (Route, error) {
 	op := operation.Operation
 	if op != nil {
 		err := operation.Validate(r.context)
@@ -43,7 +43,7 @@ func (r Router[HandlerFunc, Route]) AddRawRoute(method string, routePath string,
 	r.swaggerSchema.AddOperation(oasPath, method, op)
 
 	// Handle, when content-type is json, the request/response marshalling? Maybe with a specific option.
-	return r.router.AddRoute(method, pathWithPrefix, handler), nil
+	return r.router.AddRoute(method, pathWithPrefix, handler, middleware...), nil
 }
 
 // Content is the type of a content.
@@ -135,7 +135,7 @@ const (
 )
 
 // AddRoute add a route with json schema inferred by passed schema.
-func (r Router[HandlerFunc, Route]) AddRoute(method string, path string, handler HandlerFunc, schema Definitions) (Route, error) {
+func (r Router[HandlerFunc, MiddlewareFunc, Route]) AddRoute(method string, path string, handler HandlerFunc, schema Definitions, middleware ...MiddlewareFunc) (Route, error) {
 	operation := newOperationFromDefinition(schema)
 
 	// Process parameters from Definitions.Parameters, ensuring path params come first
@@ -279,10 +279,10 @@ func (r Router[HandlerFunc, Route]) AddRoute(method string, path string, handler
 		return getZero[Route](), fmt.Errorf("%w: %s", ErrResponses, err)
 	}
 
-	return r.AddRawRoute(method, path, handler, operation)
+	return r.AddRawRoute(method, path, handler, operation, middleware...)
 }
 
-func (r Router[_, _]) getSchemaFromInterface(v interface{}, allowAdditionalProperties bool) (*openapi3.Schema, error) {
+func (r Router[_, _, _]) getSchemaFromInterface(v interface{}, allowAdditionalProperties bool) (*openapi3.Schema, error) {
 	if v == nil {
 		return &openapi3.Schema{}, nil
 	}
@@ -313,7 +313,7 @@ func (r Router[_, _]) getSchemaFromInterface(v interface{}, allowAdditionalPrope
 	return schema, nil
 }
 
-func (r Router[_, _]) resolveRequestBodySchema(bodySchema *ContentValue, operation Operation) error {
+func (r Router[_, _, _]) resolveRequestBodySchema(bodySchema *ContentValue, operation Operation) error {
 	if bodySchema == nil {
 		return nil
 	}
@@ -341,7 +341,7 @@ func (r Router[_, _]) resolveRequestBodySchema(bodySchema *ContentValue, operati
 	return nil
 }
 
-func (r Router[_, _]) resolveResponsesSchema(responses map[int]ContentValue, operation Operation) error {
+func (r Router[_, _, _]) resolveResponsesSchema(responses map[int]ContentValue, operation Operation) error {
 	if responses == nil {
 		operation.Responses = openapi3.NewResponses()
 	}
@@ -381,7 +381,7 @@ func (r Router[_, _]) resolveResponsesSchema(responses map[int]ContentValue, ope
 	return nil
 }
 
-func (r Router[_, _]) resolveParameterSchema(paramType string, paramConfig ParameterValue, operation Operation) error {
+func (r Router[_, _, _]) resolveParameterSchema(paramType string, paramConfig ParameterValue, operation Operation) error {
 	var keys = make([]string, 0, len(paramConfig))
 	for k := range paramConfig {
 		keys = append(keys, k)
@@ -437,7 +437,7 @@ func (r Router[_, _]) resolveParameterSchema(paramType string, paramConfig Param
 	return nil
 }
 
-func (r Router[_, _]) addContentToOASSchema(content Content) (openapi3.Content, error) {
+func (r Router[_, _, _]) addContentToOASSchema(content Content) (openapi3.Content, error) {
 	oasContent := openapi3.NewContent()
 	for k, v := range content {
 		var err error

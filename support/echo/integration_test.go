@@ -22,7 +22,7 @@ const (
 	swaggerOpenapiVersion = "test openapi version"
 )
 
-type echoSwaggerRouter = swagger.Router[echo.HandlerFunc, *echo.Route]
+type echoSwaggerRouter = swagger.Router[echo.HandlerFunc, echo.HandlerFunc, *echo.Route]
 
 func TestEchoIntegration(t *testing.T) {
 	t.Run("router works correctly - echo", func(t *testing.T) {
@@ -127,7 +127,7 @@ func readBody(t *testing.T, requestBody io.ReadCloser) string {
 	return string(body)
 }
 
-func setupEchoSwagger(t *testing.T) (*echo.Echo, *echoSwaggerRouter) {
+func setupEchoSwagger(t *testing.T) (*echo.Echo, *swagger.Router[echo.HandlerFunc, echo.MiddlewareFunc, *echo.Route]) {
 	t.Helper()
 
 	context := context.Background()

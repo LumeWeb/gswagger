@@ -30,7 +30,7 @@ var (
 // Example:
 //
 //	router := GetRouter[*mux.Router](swaggerRouter)
-func GetRouter[T any, H any, R any](r apirouter.Router[H, R]) T {
+func GetRouter[T any, H any, R any, M any](r apirouter.Router[H, R, M]) T {
 	return r.Router().(T)
 }
 
@@ -50,8 +50,8 @@ type SubRouterOptions struct {
 	PathPrefix string
 }
 
-type Router[HandlerFunc, Route any] struct {
-	router                apirouter.Router[HandlerFunc, Route]
+type Router[HandlerFunc any, MiddlewareFunc any, Route any] struct {
+	router                apirouter.Router[HandlerFunc, MiddlewareFunc, Route]
 	swaggerSchema         *openapi3.T
 	context               context.Context
 	jsonDocumentationPath string
@@ -60,13 +60,13 @@ type Router[HandlerFunc, Route any] struct {
 }
 
 // Router returns the underlying router implementation
-func (r *Router[HandlerFunc, Route]) Router() apirouter.Router[HandlerFunc, Route] {
+func (r *Router[HandlerFunc, MiddlewareFunc, Route]) Router() apirouter.Router[HandlerFunc, MiddlewareFunc, Route] {
 	return r.router
 }
 
 // SubRouter creates a new router with the given path prefix
-func (r Router[HandlerFunc, Route]) SubRouter(router apirouter.Router[HandlerFunc, Route], opts SubRouterOptions) (*Router[HandlerFunc, Route], error) {
-	return &Router[HandlerFunc, Route]{
+func (r Router[HandlerFunc, MiddlewareFunc, Route]) SubRouter(router apirouter.Router[HandlerFunc, MiddlewareFunc, Route], opts SubRouterOptions) (*Router[HandlerFunc, MiddlewareFunc, Route], error) {
+	return &Router[HandlerFunc, MiddlewareFunc, Route]{
 		router:                router,
 		swaggerSchema:         r.swaggerSchema,
 		context:               r.context,
@@ -77,7 +77,7 @@ func (r Router[HandlerFunc, Route]) SubRouter(router apirouter.Router[HandlerFun
 }
 
 // SwaggerSchema returns the OpenAPI schema being used by the router
-func (r *Router[HandlerFunc, Route]) SwaggerSchema() *openapi3.T {
+func (r Router[HandlerFunc, MiddlewareFunc, Route]) SwaggerSchema() *openapi3.T {
 	return r.swaggerSchema
 }
 
@@ -94,7 +94,7 @@ type Options struct {
 }
 
 // NewRouter generate new router with openapi. Default to OpenAPI 3.0.0
-func NewRouter[HandlerFunc, Route any](router apirouter.Router[HandlerFunc, Route], options Options) (*Router[HandlerFunc, Route], error) {
+func NewRouter[HandlerFunc, MiddlewareFunc, Route any](router apirouter.Router[HandlerFunc, MiddlewareFunc, Route], options Options) (*Router[HandlerFunc, MiddlewareFunc, Route], error) {
 	openapi, err := generateNewValidOpenapi(options.Openapi)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrValidatingOAS, err)
@@ -121,7 +121,7 @@ func NewRouter[HandlerFunc, Route any](router apirouter.Router[HandlerFunc, Rout
 		jsonDocumentationPath = options.JSONDocumentationPath
 	}
 
-	return &Router[HandlerFunc, Route]{
+	return &Router[HandlerFunc, MiddlewareFunc, Route]{
 		router:                router,
 		swaggerSchema:         openapi,
 		context:               ctx,
@@ -131,9 +131,9 @@ func NewRouter[HandlerFunc, Route any](router apirouter.Router[HandlerFunc, Rout
 	}, nil
 }
 
-func (r Router[HandlerFunc, Route]) Group(pathPrefix string) (*Router[HandlerFunc, Route], error) {
+func (r Router[HandlerFunc, MiddlewareFunc, Route]) Group(pathPrefix string) (*Router[HandlerFunc, MiddlewareFunc, Route], error) {
 	apiGroupRouter := r.router.Group(pathPrefix)
-	return &Router[HandlerFunc, Route]{
+	return &Router[HandlerFunc, MiddlewareFunc, Route]{
 		router:                apiGroupRouter,
 		swaggerSchema:         r.swaggerSchema,
 		context:               r.context,
@@ -169,7 +169,7 @@ func generateNewValidOpenapi(openapi *openapi3.T) (*openapi3.T, error) {
 
 // GenerateAndExposeOpenapi creates a /documentation/json route on router and
 // expose the generated swagger
-func (r Router[_, _]) GenerateAndExposeOpenapi() error {
+func (r Router[_, _, _]) GenerateAndExposeOpenapi() error {
 	if err := r.swaggerSchema.Validate(r.context); err != nil {
 		return fmt.Errorf("%w: %s", ErrValidatingOAS, err)
 	}

@@ -10,14 +10,17 @@ import (
 
 type Route = *echo.Route
 
-var _ apirouter.Router[echo.HandlerFunc, Route] = (*echoRouter)(nil)
+var _ apirouter.Router[echo.HandlerFunc, echo.MiddlewareFunc, Route] = (*echoRouter)(nil)
 
 type echoRouter struct {
 	router *echo.Echo
 	group  *echo.Group
 }
 
-func (r echoRouter) AddRoute(method string, path string, handler echo.HandlerFunc) Route {
+func (r echoRouter) AddRoute(method string, path string, handler echo.HandlerFunc, middleware ...echo.MiddlewareFunc) Route {
+	if len(middleware) > 0 {
+		return r.router.Add(method, path, handler, middleware...)
+	}
 	return r.router.Add(method, path, handler)
 }
 
@@ -39,16 +42,23 @@ func (r echoRouter) Router() any {
 	return r.router
 }
 
-func NewRouter(router *echo.Echo) apirouter.Router[echo.HandlerFunc, Route] {
+func NewRouter(router *echo.Echo) apirouter.Router[echo.HandlerFunc, echo.MiddlewareFunc, Route] {
 	return echoRouter{
 		router: router,
 	}
 }
 
-func (r echoRouter) Group(pathPrefix string) apirouter.Router[echo.HandlerFunc, Route] {
+func (r echoRouter) Group(pathPrefix string) apirouter.Router[echo.HandlerFunc, echo.MiddlewareFunc, Route] {
 	echoGroup := r.router.Group(pathPrefix)
 	return echoRouter{
 		router: r.router,
 		group:  echoGroup,
+	}
+}
+func (r echoRouter) Use(middleware ...echo.MiddlewareFunc) {
+	if r.group != nil {
+		r.group.Use(middleware...)
+	} else {
+		r.router.Use(middleware...)
 	}
 }

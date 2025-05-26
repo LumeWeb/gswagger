@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type SwaggerRouter = swagger.Router[oasFiber.HandlerFunc, oasFiber.Route]
+type SwaggerRouter = swagger.Router[oasFiber.HandlerFunc, fiber.Handler, oasFiber.Route]
 
 const (
 	swaggerOpenapiTitle   = "test openapi title"
@@ -114,7 +114,7 @@ func TestFiberIntegration(t *testing.T) {
 	})
 }
 
-func setupSwagger(t *testing.T) (*fiber.App, *SwaggerRouter) {
+func setupSwagger(t *testing.T) (*fiber.App, *swagger.Router[oasFiber.HandlerFunc, fiber.Handler, oasFiber.Route]) {
 	t.Helper()
 
 	context := context.Background()

@@ -21,7 +21,7 @@ const (
 	swaggerOpenapiVersion = "test openapi version"
 )
 
-type SwaggerRouter = swagger.Router[gorilla.HandlerFunc, gorilla.Route]
+type SwaggerRouter = swagger.Router[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]
 
 func TestGorillaIntegration(t *testing.T) {
 	t.Run("router works correctly", func(t *testing.T) {
