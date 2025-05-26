@@ -13,28 +13,36 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/require"
-	gorilla "go.lumeweb.com/gswagger/support/gorilla"
+	"go.lumeweb.com/gswagger/apirouter"
+	"go.lumeweb.com/gswagger/support/gorilla"
 )
 
-func TestMiddleware(t *testing.T) {
-	_mux := mux.NewRouter()
-	mAPIRouter := gorilla.NewRouter(_mux)
+func setupMiddlewareTest(t *testing.T) (*Router[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route], *mux.Router) {
+	t.Helper()
 
-	info := &openapi3.Info{
-		Title:   "middleware test",
-		Version: "1.0",
-	}
+	muxRouter := mux.NewRouter()
+	gorillaRouter := gorilla.NewRouter(muxRouter)
+
 	openapi := &openapi3.T{
-		Info:  info,
+		Info: &openapi3.Info{
+			Title:   "middleware test",
+			Version: "1.0",
+		},
 		Paths: &openapi3.Paths{},
 	}
 
+	router, err := NewRouter(gorillaRouter, Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
+		Openapi: openapi,
+	})
+	require.NoError(t, err)
+
+	return router, muxRouter
+}
+
+func TestMiddleware(t *testing.T) {
 	t.Run("root router Use delegates to underlying router", func(t *testing.T) {
+		router, muxRouter := setupMiddlewareTest(t)
 		middlewareCalled := false
-		router, err := NewRouter(mAPIRouter, Options{
-			Openapi: openapi,
-		})
-		require.NoError(t, err)
 
 		router.Use(func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -54,27 +62,10 @@ func TestMiddleware(t *testing.T) {
 		require.True(t, middlewareCalled)
 		require.Equal(t, http.StatusOK, w.Result().StatusCode)
 	})
-}
 
-func TestMiddlewareViaUseAndAddRoute(t *testing.T) {
-	muxRouter := mux.NewRouter()
-	mAPIRouter := gorilla.NewRouter(muxRouter)
-
-	info := &openapi3.Info{
-		Title:   "middleware test",
-		Version: "1.0",
-	}
-	openapi := &openapi3.T{
-		Info:  info,
-		Paths: &openapi3.Paths{},
-	}
-
-	t.Run("middleware is called via Use", func(t *testing.T) {
+	t.Run("middleware is called via Router().Use", func(t *testing.T) {
+		router, muxRouter := setupMiddlewareTest(t)
 		middlewareCalled := false
-		router, err := NewRouter(mAPIRouter, Options{
-			Openapi: openapi,
-		})
-		require.NoError(t, err)
 
 		router.Router().Use(func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -83,12 +74,12 @@ func TestMiddlewareViaUseAndAddRoute(t *testing.T) {
 			})
 		})
 
-		router.AddRoute(http.MethodGet, "/test", func(w http.ResponseWriter, req *http.Request) {
+		router.AddRoute(http.MethodGet, "/test-router-use", func(w http.ResponseWriter, req *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}, Definitions{})
 
 		w := httptest.NewRecorder()
-		r := httptest.NewRequest(http.MethodGet, "/test", nil)
+		r := httptest.NewRequest(http.MethodGet, "/test-router-use", nil)
 		muxRouter.ServeHTTP(w, r)
 
 		require.True(t, middlewareCalled)
@@ -96,8 +87,10 @@ func TestMiddlewareViaUseAndAddRoute(t *testing.T) {
 	})
 
 	t.Run("middleware is called via AddRoute", func(t *testing.T) {
+		router, muxRouter := setupMiddlewareTest(t)
 		mw1Called := false
 		mw2Called := false
+
 		mw1 := func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				mw1Called = true
@@ -110,11 +103,6 @@ func TestMiddlewareViaUseAndAddRoute(t *testing.T) {
 				next.ServeHTTP(w, r)
 			})
 		}
-
-		router, err := NewRouter(mAPIRouter, Options{
-			Openapi: openapi,
-		})
-		require.NoError(t, err)
 
 		router.AddRoute(http.MethodGet, "/route-mw", func(w http.ResponseWriter, req *http.Request) {
 			w.WriteHeader(http.StatusOK)
@@ -129,12 +117,9 @@ func TestMiddlewareViaUseAndAddRoute(t *testing.T) {
 		require.Equal(t, http.StatusOK, w.Result().StatusCode)
 	})
 
-	t.Run("multiple middleware are called in order via Use", func(t *testing.T) {
+	t.Run("multiple middleware are called in order", func(t *testing.T) {
+		router, muxRouter := setupMiddlewareTest(t)
 		var callOrder []string
-		router, err := NewRouter(mAPIRouter, Options{
-			Openapi: openapi,
-		})
-		require.NoError(t, err)
 
 		router.Router().Use(func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -176,49 +161,61 @@ func TestNewRouter(t *testing.T) {
 	}
 
 	t.Run("not ok - invalid Openapi option", func(t *testing.T) {
-		r, err := NewRouter(mAPIRouter, Options{})
+		r, err := NewRouter(mAPIRouter, Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{})
 
 		require.Nil(t, r)
 		require.EqualError(t, err, fmt.Sprintf("%s: openapi is required", ErrValidatingOAS))
 	})
 
 	t.Run("ok - with default context", func(t *testing.T) {
-		r, err := NewRouter(mAPIRouter, Options{
+		r, err := NewRouter(mAPIRouter, Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
 			Openapi: openapi,
 		})
 
 		require.NoError(t, err)
-		require.Equal(t, &Router[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
+		expected := &Router[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
 			context:               context.Background(),
 			router:                mAPIRouter,
 			swaggerSchema:         openapi,
 			jsonDocumentationPath: DefaultJSONDocumentationPath,
 			yamlDocumentationPath: DefaultYAMLDocumentationPath,
-		}, r)
+			hostRouters:           make(map[string]*Router[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]),
+			rootRouter:            nil, // This will be set below
+			defaultRouter:         nil, // This will be set below
+		}
+		expected.rootRouter = expected    // Set root reference to self
+		expected.defaultRouter = expected // Set default router to self
+		require.Equal(t, expected, r)
 	})
 
 	t.Run("ok - with custom context", func(t *testing.T) {
 		type key struct{}
 		ctx := context.WithValue(context.Background(), key{}, "value")
-		r, err := NewRouter(mAPIRouter, Options{
+		r, err := NewRouter(mAPIRouter, Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
 			Openapi: openapi,
 			Context: ctx,
 		})
 
 		require.NoError(t, err)
-		require.Equal(t, &Router[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
+		expected := &Router[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
 			context:               ctx,
 			router:                mAPIRouter,
 			swaggerSchema:         openapi,
 			jsonDocumentationPath: DefaultJSONDocumentationPath,
 			yamlDocumentationPath: DefaultYAMLDocumentationPath,
-		}, r)
+			hostRouters:           make(map[string]*Router[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]),
+			rootRouter:            nil, // This will be set below
+			defaultRouter:         nil, // This will be set below
+		}
+		expected.rootRouter = expected    // Set root reference to self
+		expected.defaultRouter = expected // Set default router to self
+		require.Equal(t, expected, r)
 	})
 
 	t.Run("ok - with custom docs paths", func(t *testing.T) {
 		type key struct{}
 		ctx := context.WithValue(context.Background(), key{}, "value")
-		r, err := NewRouter(mAPIRouter, Options{
+		r, err := NewRouter(mAPIRouter, Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
 			Openapi:               openapi,
 			Context:               ctx,
 			JSONDocumentationPath: "/json/path",
@@ -226,19 +223,25 @@ func TestNewRouter(t *testing.T) {
 		})
 
 		require.NoError(t, err)
-		require.Equal(t, &Router[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
+		expected := &Router[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
 			context:               ctx,
 			router:                mAPIRouter,
 			swaggerSchema:         openapi,
 			jsonDocumentationPath: "/json/path",
 			yamlDocumentationPath: "/yaml/path",
-		}, r)
+			hostRouters:           make(map[string]*Router[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]),
+			rootRouter:            nil, // This will be set below
+			defaultRouter:         nil, // This will be set below
+		}
+		expected.rootRouter = expected    // Set root reference to self
+		expected.defaultRouter = expected // Set default router to self
+		require.Equal(t, expected, r)
 	})
 
 	t.Run("ko - json documentation path does not start with /", func(t *testing.T) {
 		type key struct{}
 		ctx := context.WithValue(context.Background(), key{}, "value")
-		r, err := NewRouter(mAPIRouter, Options{
+		r, err := NewRouter(mAPIRouter, Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
 			Openapi:               openapi,
 			Context:               ctx,
 			JSONDocumentationPath: "json/path",
@@ -252,7 +255,7 @@ func TestNewRouter(t *testing.T) {
 	t.Run("ko - yaml documentation path does not start with /", func(t *testing.T) {
 		type key struct{}
 		ctx := context.WithValue(context.Background(), key{}, "value")
-		r, err := NewRouter(mAPIRouter, Options{
+		r, err := NewRouter(mAPIRouter, Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
 			Openapi:               openapi,
 			Context:               ctx,
 			JSONDocumentationPath: "/json/path",
@@ -333,7 +336,7 @@ func TestGenerateValidSwagger(t *testing.T) {
 func TestGenerateAndExposeSwagger(t *testing.T) {
 	t.Run("fails openapi validation", func(t *testing.T) {
 		mRouter := mux.NewRouter()
-		router, err := NewRouter(gorilla.NewRouter(mRouter), Options{
+		router, err := NewRouter(gorilla.NewRouter(mRouter), Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
 			Openapi: &openapi3.T{
 				Info: &openapi3.Info{
 					Title:   "title",
@@ -359,7 +362,7 @@ func TestGenerateAndExposeSwagger(t *testing.T) {
 		openapi, err := openapi3.NewLoader().LoadFromFile("testdata/users_employees.json")
 		require.NoError(t, err)
 
-		router, err := NewRouter(gorilla.NewRouter(mRouter), Options{
+		router, err := NewRouter(gorilla.NewRouter(mRouter), Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
 			Openapi: openapi,
 		})
 		require.NoError(t, err)
@@ -386,7 +389,7 @@ func TestGenerateAndExposeSwagger(t *testing.T) {
 		openapi, err := openapi3.NewLoader().LoadFromFile("testdata/users_employees.json")
 		require.NoError(t, err)
 
-		router, err := NewRouter(gorilla.NewRouter(mRouter), Options{
+		router, err := NewRouter(gorilla.NewRouter(mRouter), Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
 			Openapi:               openapi,
 			JSONDocumentationPath: "/custom/path",
 		})
@@ -414,7 +417,7 @@ func TestGenerateAndExposeSwagger(t *testing.T) {
 		openapi, err := openapi3.NewLoader().LoadFromFile("testdata/users_employees.json")
 		require.NoError(t, err)
 
-		router, err := NewRouter(gorilla.NewRouter(mRouter), Options{
+		router, err := NewRouter(gorilla.NewRouter(mRouter), Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
 			Openapi: openapi,
 		})
 		require.NoError(t, err)
@@ -441,7 +444,7 @@ func TestGenerateAndExposeSwagger(t *testing.T) {
 		openapi, err := openapi3.NewLoader().LoadFromFile("testdata/users_employees.json")
 		require.NoError(t, err)
 
-		router, err := NewRouter(gorilla.NewRouter(mRouter), Options{
+		router, err := NewRouter(gorilla.NewRouter(mRouter), Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
 			Openapi:               openapi,
 			YAMLDocumentationPath: "/custom/path",
 		})
@@ -466,7 +469,7 @@ func TestGenerateAndExposeSwagger(t *testing.T) {
 	t.Run("ok - subrouter", func(t *testing.T) {
 		mRouter := mux.NewRouter()
 
-		router, err := NewRouter(gorilla.NewRouter(mRouter), Options{
+		router, err := NewRouter(gorilla.NewRouter(mRouter), Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
 			Openapi: &openapi3.T{
 				Info: &openapi3.Info{
 					Title:   "test openapi title",
@@ -543,9 +546,7 @@ func TestGenerateAndExposeSwagger(t *testing.T) {
 	})
 
 	t.Run("ok - new router with path prefix", func(t *testing.T) {
-		mRouter := mux.NewRouter()
-
-		router, err := NewRouter(gorilla.NewRouter(mRouter), Options{
+		router, err := NewRouter(gorilla.NewRouter(mux.NewRouter()), Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
 			Openapi: &openapi3.T{
 				Info: &openapi3.Info{
 					Title:   "test openapi title",
@@ -566,8 +567,8 @@ func TestGenerateAndExposeSwagger(t *testing.T) {
 		require.NoError(t, err)
 
 		w := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/custom/path", nil)
-		mRouter.ServeHTTP(w, req)
+		req := httptest.NewRequest(http.MethodGet, "/prefix/custom/path", nil)
+		router.ServeHTTP(w, req)
 
 		require.Equal(t, http.StatusOK, w.Result().StatusCode)
 		require.True(t, strings.Contains(w.Result().Header.Get("content-type"), "application/json"))
@@ -583,7 +584,7 @@ func TestGroup(t *testing.T) {
 	t.Run("ok - create a group and add routes", func(t *testing.T) {
 		mRouter := mux.NewRouter()
 
-		router, err := NewRouter(gorilla.NewRouter(mRouter), Options{
+		router, err := NewRouter(gorilla.NewRouter(mRouter), Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
 			Openapi: &openapi3.T{
 				Info: &openapi3.Info{
 					Title:   "test openapi title",
@@ -594,17 +595,14 @@ func TestGroup(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		// Add a route to the main router
 		router.AddRoute(http.MethodGet, "/foo", func(w http.ResponseWriter, req *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte("ok"))
 		}, Definitions{})
 
-		// Create a group
 		apiGroup, err := router.Group("/api/v1")
 		require.NoError(t, err)
 
-		// Add routes to the group
 		_, err = apiGroup.AddRoute(http.MethodGet, "/users", func(w http.ResponseWriter, req *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte("ok"))
@@ -636,7 +634,7 @@ func TestGetRouter(t *testing.T) {
 	t.Run("gets gorilla router instance", func(t *testing.T) {
 		muxRouter := mux.NewRouter()
 		gorillaRouter := gorilla.NewRouter(muxRouter)
-		router, err := NewRouter(gorillaRouter, Options{
+		router, err := NewRouter(gorillaRouter, Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
 			Openapi: &openapi3.T{
 				Info: &openapi3.Info{
 					Title:   "test",
@@ -652,7 +650,7 @@ func TestGetRouter(t *testing.T) {
 
 	t.Run("panics on wrong type", func(t *testing.T) {
 		muxRouter := mux.NewRouter()
-		router, err := NewRouter(gorilla.NewRouter(muxRouter), Options{
+		router, err := NewRouter(gorilla.NewRouter(muxRouter), Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
 			Openapi: &openapi3.T{
 				Info: &openapi3.Info{
 					Title:   "test",
@@ -675,4 +673,199 @@ func readBody(t *testing.T, requestBody io.ReadCloser) string {
 	require.NoError(t, err)
 
 	return string(body)
+}
+
+func setupHostRouterTest(t *testing.T) (*mux.Router, *Router[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]) {
+	t.Helper()
+
+	info := &openapi3.Info{
+		Title:   "Host Routing Test",
+		Version: "1.0",
+	}
+	openapi := &openapi3.T{
+		Info:  info,
+		Paths: &openapi3.Paths{},
+	}
+
+	muxRouter := mux.NewRouter()
+	gorillaRouter := gorilla.NewRouter(muxRouter)
+
+	router, err := NewRouter(gorillaRouter, Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
+		Openapi: openapi,
+		FrameworkRouterFactory: func() apirouter.Router[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route] {
+			return gorilla.NewRouter(mux.NewRouter())
+		},
+	})
+	require.NoError(t, err)
+
+	return muxRouter, router
+}
+
+func TestHostRouting(t *testing.T) {
+	t.Run("generate docs on host router", func(t *testing.T) {
+		_, router := setupHostRouterTest(t)
+
+		hostRouter, err := router.Host("api.example.com")
+		require.NoError(t, err)
+
+		// Add a route to the host router
+		_, err = hostRouter.AddRoute(http.MethodGet, "/host", func(w http.ResponseWriter, req *http.Request) {
+			w.Write([]byte("host"))
+		}, Definitions{})
+		require.NoError(t, err)
+
+		// Generate docs directly on host router
+		err = hostRouter.GenerateAndExposeOpenapi()
+		require.NoError(t, err)
+
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/documentation/json", nil)
+		req.Host = "api.example.com"
+		router.ServeHTTP(w, req) // Use root router's ServeHTTP
+		require.Equal(t, http.StatusOK, w.Result().StatusCode)
+	})
+
+	t.Run("create host router", func(t *testing.T) {
+		_, router := setupHostRouterTest(t)
+
+		hostRouter, err := router.Host("api.example.com")
+		require.NoError(t, err)
+		_, err = router.Host("api.example.com") // Test getting existing host
+		require.NoError(t, err)
+		require.Equal(t, "api.example.com", hostRouter.host)
+	})
+
+	t.Run("host router isolation", func(t *testing.T) {
+		_, router := setupHostRouterTest(t)
+
+		_, err := router.AddRoute(http.MethodGet, "/default", func(w http.ResponseWriter, req *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}, Definitions{})
+		require.NoError(t, err)
+
+		hostRouter, err := router.Host("api.example.com")
+		require.NoError(t, err)
+		_, err = hostRouter.AddRoute(http.MethodGet, "/host", func(w http.ResponseWriter, req *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}, Definitions{})
+		require.NoError(t, err)
+
+		require.NotEqual(t, router.swaggerSchema, hostRouter.swaggerSchema)
+		require.Equal(t, 1, len(router.swaggerSchema.Paths.Map()))
+		require.Equal(t, 1, len(hostRouter.swaggerSchema.Paths.Map()))
+	})
+
+	t.Run("host-based request routing", func(t *testing.T) {
+		_, router := setupHostRouterTest(t)
+
+		_, err := router.AddRoute(http.MethodGet, "/default", func(w http.ResponseWriter, req *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("default"))
+		}, Definitions{})
+		require.NoError(t, err)
+
+		hostRouter, err := router.Host("api.example.com")
+		require.NoError(t, err)
+		_, err = hostRouter.AddRoute(http.MethodGet, "/host", func(w http.ResponseWriter, req *http.Request) {
+			w.Write([]byte("host"))
+		}, Definitions{})
+		require.NoError(t, err)
+
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/default", nil)
+		router.ServeHTTP(w, req) // Use root router's ServeHTTP
+		require.Equal(t, "default", w.Body.String())
+
+		w = httptest.NewRecorder()
+		req = httptest.NewRequest(http.MethodGet, "/host", nil)
+		req.Host = "api.example.com"
+		router.ServeHTTP(w, req) // Use root router's ServeHTTP
+		require.Equal(t, "host", w.Body.String())
+	})
+
+	t.Run("host-specific documentation", func(t *testing.T) {
+		_, router := setupHostRouterTest(t)
+
+		_, err := router.Host("api.example.com")
+		require.NoError(t, err)
+
+		err = router.GenerateAndExposeOpenapi()
+		require.NoError(t, err)
+
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/documentation/json", nil)
+		req.Host = "api.example.com"
+		router.ServeHTTP(w, req) // Use root router's ServeHTTP
+		require.Equal(t, http.StatusOK, w.Result().StatusCode)
+	})
+
+	t.Run("host router error cases", func(t *testing.T) {
+		_, router := setupHostRouterTest(t)
+
+		// Create a group router
+		groupRouter, err := router.Group("/api")
+		require.NoError(t, err)
+
+		t.Run("cannot call Host on non-root router", func(t *testing.T) {
+			_, err := groupRouter.Host("api.example.com")
+			require.Error(t, err)
+			require.Equal(t, "Host() can only be called on the root router instance", err.Error())
+		})
+
+		t.Run("empty host name", func(t *testing.T) {
+			_, err := router.Host("")
+			require.Error(t, err)
+			require.Equal(t, "Host name cannot be empty", err.Error())
+		})
+
+		t.Run("missing framework router factory", func(t *testing.T) {
+			info := &openapi3.Info{
+				Title:   "Host Routing Test",
+				Version: "1.0",
+			}
+			openapi := &openapi3.T{
+				Info:  info,
+				Paths: &openapi3.Paths{},
+			}
+			muxRouter := mux.NewRouter()
+			gorillaRouter := gorilla.NewRouter(muxRouter)
+
+			routerNoFactory, err := NewRouter(gorillaRouter, Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
+				Openapi: openapi,
+			})
+			require.NoError(t, err)
+
+			_, err = routerNoFactory.Host("api.example.com")
+			require.Error(t, err)
+			require.Equal(t, "FrameworkRouterFactory is not set in NewRouter Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]", err.Error())
+		})
+	})
+
+	t.Run("host router middleware", func(t *testing.T) {
+		_, router := setupHostRouterTest(t)
+
+		hostRouter, err := router.Host("api.example.com")
+		require.NoError(t, err)
+
+		middlewareCalled := false
+		hostRouter.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				middlewareCalled = true
+				next.ServeHTTP(w, r)
+			})
+		})
+
+		_, err = hostRouter.AddRoute(http.MethodGet, "/test", func(w http.ResponseWriter, req *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}, Definitions{})
+		require.NoError(t, err)
+
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
+		req.Host = "api.example.com"
+		router.ServeHTTP(w, req) // Use root router's ServeHTTP
+
+		require.True(t, middlewareCalled)
+		require.Equal(t, http.StatusOK, w.Result().StatusCode)
+	})
 }

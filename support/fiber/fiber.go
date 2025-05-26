@@ -39,6 +39,21 @@ func (r fiberRouter) Group(pathPrefix string) apirouter.Router[HandlerFunc, Hand
 	}
 }
 
+func (r fiberRouter) Host(host string) apirouter.Router[HandlerFunc, HandlerFunc, Route] {
+	// Fiber doesn't natively support host-based routing, so we'll use a middleware
+	// to filter requests by host
+	hostRouter := r.router.Group("")
+	hostRouter.Use(func(c *fiber.Ctx) error {
+		if c.Hostname() != host {
+			return fiber.ErrNotFound
+		}
+		return c.Next()
+	})
+	return fiberRouter{
+		router: hostRouter,
+	}
+}
+
 func (r fiberRouter) AddRoute(method string, path string, handler HandlerFunc, middleware ...HandlerFunc) Route {
 	handlers := make([]HandlerFunc, 0, len(middleware)+1)
 	handlers = append(handlers, middleware...)

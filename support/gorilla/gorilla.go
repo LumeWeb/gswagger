@@ -76,3 +76,10 @@ func (r gorillaRouter) Group(pathPrefix string) apirouter.Router[HandlerFunc, mu
 		inGroup:    true, // Mark as being in a group
 	}
 }
+
+func (r gorillaRouter) Host(host string) apirouter.Router[HandlerFunc, mux.MiddlewareFunc, Route] {
+	hostRouter := r.router.Host(host).Subrouter()
+	return gorillaRouter{
+		router: hostRouter,
+	}
+}

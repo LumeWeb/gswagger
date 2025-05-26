@@ -12,19 +12,29 @@ import (
 	"github.com/invopop/jsonschema"
 )
 
+// Error variables for OpenAPI schema generation failures
 var (
-	// ErrResponses is thrown if error occurs generating responses schemas.
+	// ErrResponses indicates failure generating response schemas
 	ErrResponses = errors.New("errors generating responses schema")
-	// ErrRequestBody is thrown if error occurs generating responses schemas.
+	// ErrRequestBody indicates failure generating request body schema
 	ErrRequestBody = errors.New("errors generating request body schema")
-	// ErrPathParams is thrown if error occurs generating path params schemas.
+	// ErrPathParams indicates failure generating path parameter schemas
 	ErrPathParams = errors.New("errors generating path parameters schema")
-	// ErrQuerystring is thrown if error occurs generating querystring params schemas.
+	// ErrQuerystring indicates failure generating querystring parameter schemas
 	ErrQuerystring = errors.New("errors generating querystring schema")
 )
 
-// AddRawRoute add route to router with specific method, path and handler. Add the
-// router also to the openapi schema, after validating it
+// AddRawRoute adds a route with explicit OpenAPI Operation definition.
+// This lower-level method allows full control over the OpenAPI operation definition.
+// Parameters:
+//   - method: HTTP method (GET, POST, etc.)
+//   - routePath: URL path pattern
+//   - handler: Request handler function
+//   - operation: Predefined OpenAPI Operation
+//   - middleware: Optional middleware chain
+// Returns:
+//   - Route: Framework-specific route object
+//   - error: Validation error if operation is invalid
 func (r Router[HandlerFunc, MiddlewareFunc, Route]) AddRawRoute(method string, routePath string, handler HandlerFunc, operation Operation, middleware ...MiddlewareFunc) (Route, error) {
 	op := operation.Operation
 	if op != nil {
@@ -42,76 +52,77 @@ func (r Router[HandlerFunc, MiddlewareFunc, Route]) AddRawRoute(method string, r
 	oasPath := r.router.TransformPathToOasPath(pathWithPrefix)
 	r.swaggerSchema.AddOperation(oasPath, method, op)
 
-	// Handle, when content-type is json, the request/response marshalling? Maybe with a specific option.
 	return r.router.AddRoute(method, pathWithPrefix, handler, middleware...), nil
 }
 
-// Content is the type of a content.
-// The key of the map define the content-type.
+// Content defines media type schemas for request/response bodies
+// Key is media type (e.g. "application/json"), value is Schema
 type Content map[string]Schema
 
-// Schema contains the value and if properties allow additional properties.
+// Schema defines the structure of request/response data
 type Schema struct {
-	Value                     interface{}
-	AllowAdditionalProperties bool
+	Value                     interface{} // Go type to generate schema from
+	AllowAdditionalProperties bool       // Whether to allow extra fields
 }
 
+// Parameter defines an API parameter (path, query, header, cookie)
 type Parameter struct {
-	Content     Content
-	Schema      *Schema
-	Description string
-	Required    bool
+	Content     Content      // Media type schemas (alternative to Schema)
+	Schema      *Schema      // Parameter schema definition
+	Description string       // Human-readable description
+	Required    bool         // Whether parameter is required
 }
 
-// ParameterValue is the struct containing the schema or the content information.
-// If content is specified, it takes precedence.
+// ParameterValue maps parameter names to their definitions
 type ParameterValue map[string]Parameter
 
-// ParameterDefinition defines a single parameter with its location and schema
+// ParameterDefinition defines a reusable parameter component
 type ParameterDefinition struct {
-	In          string // "query", "header", "path", "cookie"
-	Required    bool
-	Description string
-	Content     Content
-	Schema      *Schema
+	In          string       // Location (path, query, header, cookie)
+	Required    bool         // Whether parameter is required
+	Description string       // Human-readable description
+	Content     Content      // Media type schemas (alternative to Schema)
+	Schema      *Schema      // Parameter schema definition
 }
 
-// ContentValue is the struct containing the content information.
+// ContentValue defines request/response body content
 type ContentValue struct {
-	Content     Content
-	Description string
-	Headers     map[string]string
-	Required    bool
+	Content     Content            // Media type schemas
+	Description string             // Human-readable description
+	Headers     map[string]string  // Response headers
+	Required    bool               // Whether body is required
 }
 
+// SecurityRequirements lists required security schemes
 type SecurityRequirements []SecurityRequirement
+
+// SecurityRequirement maps security scheme names to required scopes
 type SecurityRequirement map[string][]string
 
-// Definitions of the route.
-// To see how to use, refer to https://github.com/OAI/OpenAPI-Specification/blob/main/versions/3.0.3.md
+// Definitions provides OpenAPI schema definitions for a route
 type Definitions struct {
-	// Specification extensions https://github.com/OAI/OpenAPI-Specification/blob/main/versions/3.0.3.md#specification-extensions
-	Extensions map[string]interface{}
-	// Optional field for documentation
-	Tags        []string
-	Summary     string
-	Description string
-	Deprecated  bool
-
-	// Parameters contains all parameters (query, header, path, cookie)
-	Parameters map[string]ParameterDefinition
-
-	// PathParams contains the path parameters. If empty is autocompleted from the path
-	PathParams  ParameterValue
-	Querystring ParameterValue
-	Headers     ParameterValue
-	Cookies     ParameterValue
-	RequestBody *ContentValue
-	Responses   map[int]ContentValue
-
-	Security SecurityRequirements
+	Extensions   map[string]interface{} // OpenAPI extensions
+	Tags         []string              // Logical grouping tags
+	Summary      string                // Short summary
+	Description  string                // Detailed description
+	Deprecated   bool                  // Whether endpoint is deprecated
+	Parameters   map[string]ParameterDefinition // Reusable parameters
+	PathParams   ParameterValue        // Path parameters
+	Querystring  ParameterValue        // Query parameters
+	Headers      ParameterValue        // Header parameters
+	Cookies      ParameterValue        // Cookie parameters
+	RequestBody  *ContentValue         // Request body definition
+	Responses    map[int]ContentValue  // Response definitions by status code
+	Security     SecurityRequirements  // Security requirements
 }
 
+// newOperationFromDefinition converts Definitions to an OpenAPI Operation
+// Handles:
+// - Tags, summary, description
+// - Security requirements
+// - Parameters (path, query, header, cookie)
+// - Request body
+// - Responses
 func newOperationFromDefinition(schema Definitions) Operation {
 	operation := NewOperation()
 	operation.Responses = &openapi3.Responses{}
@@ -125,20 +136,36 @@ func newOperationFromDefinition(schema Definitions) Operation {
 	return operation
 }
 
+// Constants for OpenAPI parameter locations and content types
 const (
-	pathParamsType  = "path"
-	queryParamType  = "query"
-	headerParamType = "header"
-	cookieParamType = "cookie"
-	jsonType        = "application/json"
-	formDataType    = "multipart/form-data"
+	pathParamsType  = "path"  // Path parameter location
+	queryParamType  = "query" // Query parameter location
+	headerParamType = "header" // Header parameter location
+	cookieParamType = "cookie" // Cookie parameter location
+	jsonType        = "application/json" // JSON content type
+	formDataType    = "multipart/form-data" // Form data content type
 )
 
-// AddRoute add a route with json schema inferred by passed schema.
+// AddRoute adds a route with OpenAPI schema inferred from Definitions.
+// Automatically handles:
+// - Path parameters from route path
+// - Query parameters
+// - Headers
+// - Cookies
+// - Request body
+// - Responses
+// Parameters:
+//   - method: HTTP method (GET, POST, etc.)
+//   - path: URL path pattern
+//   - handler: Request handler function
+//   - schema: OpenAPI definitions for the route
+//   - middleware: Optional middleware chain
+// Returns:
+//   - Route: Framework-specific route object
+//   - error: Validation error if schema is invalid
 func (r Router[HandlerFunc, MiddlewareFunc, Route]) AddRoute(method string, path string, handler HandlerFunc, schema Definitions, middleware ...MiddlewareFunc) (Route, error) {
 	operation := newOperationFromDefinition(schema)
 
-	// Process parameters from Definitions.Parameters, ensuring path params come first
 	var pathParams, otherParams []*openapi3.Parameter
 
 	for name, paramDef := range schema.Parameters {
@@ -152,14 +179,12 @@ func (r Router[HandlerFunc, MiddlewareFunc, Route]) AddRoute(method string, path
 		if paramDef.Content != nil {
 			content, err := r.addContentToOASSchema(paramDef.Content)
 			if err != nil {
-				// Log or handle error appropriately, skipping parameter for now
 				continue
 			}
 			param.Content = content
 		} else if paramDef.Schema != nil {
 			schema, err := r.getSchemaFromInterface(paramDef.Schema.Value, paramDef.Schema.AllowAdditionalProperties)
 			if err != nil {
-				// Log or handle error appropriately, skipping parameter for now
 				continue
 			}
 			param.Schema = &openapi3.SchemaRef{Value: schema}
@@ -172,7 +197,6 @@ func (r Router[HandlerFunc, MiddlewareFunc, Route]) AddRoute(method string, path
 		}
 	}
 
-	// Add path parameters first, then others
 	for _, param := range pathParams {
 		operation.AddParameter(param)
 	}
@@ -180,7 +204,6 @@ func (r Router[HandlerFunc, MiddlewareFunc, Route]) AddRoute(method string, path
 		operation.AddParameter(param)
 	}
 
-	// Helper function to add parameters from older fields if they don't already exist
 	addParameterIfNotExists := func(paramType string, paramConfig ParameterValue) error {
 		var keys = make([]string, 0, len(paramConfig))
 		for k := range paramConfig {
@@ -189,7 +212,6 @@ func (r Router[HandlerFunc, MiddlewareFunc, Route]) AddRoute(method string, path
 		sort.Strings(keys)
 
 		for _, key := range keys {
-			// Check if a parameter with the same name and in value already exists
 			exists := false
 			if operation.Parameters != nil {
 				for _, existingParamRef := range operation.Parameters {
@@ -208,7 +230,7 @@ func (r Router[HandlerFunc, MiddlewareFunc, Route]) AddRoute(method string, path
 				switch paramType {
 				case pathParamsType:
 					param = openapi3.NewPathParameter(key)
-					param.Required = true // Path parameters are always required
+					param.Required = true
 				case queryParamType:
 					param = openapi3.NewQueryParameter(key)
 				case headerParamType:
@@ -247,7 +269,6 @@ func (r Router[HandlerFunc, MiddlewareFunc, Route]) AddRoute(method string, path
 		return nil
 	}
 
-	// Process parameters from older fields for backward compatibility
 	oasPath := r.router.TransformPathToOasPath(path)
 	err := addParameterIfNotExists(pathParamsType, getPathParamsAutoComplete(schema, oasPath))
 	if err != nil {
@@ -295,8 +316,6 @@ func (r Router[_, _, _]) getSchemaFromInterface(v interface{}, allowAdditionalPr
 
 	jsonSchema := reflector.Reflect(v)
 	jsonSchema.Version = ""
-	// Empty definitions. Definitions are not valid in openapi3, which use components.
-	// In the future, we could add an option to fill the components in openapi spec.
 	jsonSchema.Definitions = nil
 
 	data, err := jsonSchema.MarshalJSON()
@@ -325,7 +344,6 @@ func (r Router[_, _, _]) resolveRequestBodySchema(bodySchema *ContentValue, oper
 	requestBody := openapi3.NewRequestBody().WithContent(content)
 
 	requestBody.WithDescription(bodySchema.Description)
-	// Only set required=true for JSON content when description is present
 	if bodySchema.Description != "" {
 		for contentType := range bodySchema.Content {
 			if contentType == jsonType {
@@ -354,16 +372,12 @@ func (r Router[_, _, _]) resolveResponsesSchema(responses map[int]ContentValue, 
 		response = response.WithContent(content)
 		response = response.WithDescription(v.Description)
 
-		// Add headers to response if specified
-		// Add headers to response if specified
 		if len(v.Headers) > 0 {
 			response.Headers = make(map[string]*openapi3.HeaderRef)
 			for headerName, headerDesc := range v.Headers {
-				// Create a new OpenAPI Header object
 				header := &openapi3.Header{
 					Parameter: openapi3.Parameter{
 						Description: headerDesc,
-						// Add a default string schema for headers with just a description
 						Schema: &openapi3.SchemaRef{
 							Value: openapi3.NewStringSchema(),
 						},

@@ -130,11 +130,11 @@ func readBody(t *testing.T, requestBody io.ReadCloser) string {
 func setupEchoSwagger(t *testing.T) (*echo.Echo, *swagger.Router[echo.HandlerFunc, echo.MiddlewareFunc, *echo.Route]) {
 	t.Helper()
 
-	context := context.Background()
+	ctx := context.Background()
 	e := echo.New()
 
-	router, err := swagger.NewRouter(oasEcho.NewRouter(e), swagger.Options{
-		Context: context,
+	router, err := swagger.NewRouter(oasEcho.NewRouter(e), swagger.Options[echo.HandlerFunc, echo.MiddlewareFunc, *echo.Route]{
+		Context: ctx,
 		Openapi: &openapi3.T{
 			Info: &openapi3.Info{
 				Title:   swaggerOpenapiTitle,

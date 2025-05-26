@@ -55,6 +55,24 @@ func (r echoRouter) Group(pathPrefix string) apirouter.Router[echo.HandlerFunc, 
 		group:  echoGroup,
 	}
 }
+
+func (r echoRouter) Host(host string) apirouter.Router[echo.HandlerFunc, echo.MiddlewareFunc, Route] {
+	// Echo doesn't natively support host-based routing, so we'll use a middleware
+	// to filter requests by host
+	hostRouter := r.router.Group("")
+	hostRouter.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			if c.Request().Host != host {
+				return echo.ErrNotFound
+			}
+			return next(c)
+		}
+	})
+	return echoRouter{
+		router: r.router,
+		group:  hostRouter,
+	}
+}
 func (r echoRouter) Use(middleware ...echo.MiddlewareFunc) {
 	if r.group != nil {
 		r.group.Use(middleware...)

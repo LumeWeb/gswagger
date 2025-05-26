@@ -20,7 +20,7 @@ func TestExample(t *testing.T) {
 	context := context.Background()
 	muxRouter := mux.NewRouter()
 
-	router, _ := swagger.NewRouter(gorilla.NewRouter(muxRouter), swagger.Options{
+	router, _ := swagger.NewRouter(gorilla.NewRouter(muxRouter), swagger.Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
 		Context: context,
 		Openapi: &openapi3.T{
 			Info: &openapi3.Info{
