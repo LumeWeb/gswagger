@@ -2,8 +2,8 @@ package gorilla
 
 import (
 	"go.lumeweb.com/gswagger/apirouter"
-
 	"net/http"
+	"strings"
 
 	"github.com/gorilla/mux"
 )
@@ -12,8 +12,11 @@ import (
 type HandlerFunc func(w http.ResponseWriter, req *http.Request)
 type Route = *mux.Route
 
+var _ apirouter.Router[HandlerFunc, Route] = (*gorillaRouter)(nil)
+
 type gorillaRouter struct {
-	router *mux.Router
+	router     *mux.Router // Can be main router or subrouter
+	pathPrefix string
 }
 
 func (r gorillaRouter) AddRoute(method string, path string, handler HandlerFunc) Route {
@@ -39,5 +42,24 @@ func (r gorillaRouter) Router() any {
 func NewRouter(router *mux.Router) apirouter.Router[HandlerFunc, Route] {
 	return gorillaRouter{
 		router: router,
+	}
+}
+
+func (r gorillaRouter) Group(pathPrefix string) apirouter.Router[HandlerFunc, Route] {
+	// Ensure path prefix starts with / and doesn't end with /
+	cleanPrefix := strings.TrimPrefix(pathPrefix, "/")
+	cleanPrefix = strings.TrimSuffix(cleanPrefix, "/")
+
+	fullPrefix := "/" + cleanPrefix
+	if r.pathPrefix != "" {
+		fullPrefix = r.pathPrefix + fullPrefix
+	}
+
+	// Create the subrouter using NewRoute().PathPrefix()
+	muxSubrouter := r.router.NewRoute().PathPrefix(fullPrefix).Subrouter()
+	muxSubrouter.StrictSlash(true)
+	return gorillaRouter{
+		router:     muxSubrouter,
+		pathPrefix: fullPrefix,
 	}
 }

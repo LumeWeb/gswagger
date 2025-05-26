@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path"
 	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
@@ -27,7 +28,8 @@ var (
 // GetRouter returns the underlying router instance cast to the specified type.
 // This provides type-safe access to the concrete router implementation.
 // Example:
-//   router := GetRouter[*mux.Router](swaggerRouter)
+//
+//	router := GetRouter[*mux.Router](swaggerRouter)
 func GetRouter[T any, H any, R any](r apirouter.Router[H, R]) T {
 	return r.Router().(T)
 }
@@ -43,6 +45,11 @@ const (
 // Router handle the api router and the openapi schema.
 // api router supported out of the box are:
 // - gorilla mux
+// SubRouterOptions contains options for creating a subrouter
+type SubRouterOptions struct {
+	PathPrefix string
+}
+
 type Router[HandlerFunc, Route any] struct {
 	router                apirouter.Router[HandlerFunc, Route]
 	swaggerSchema         *openapi3.T
@@ -55,6 +62,18 @@ type Router[HandlerFunc, Route any] struct {
 // Router returns the underlying router implementation
 func (r *Router[HandlerFunc, Route]) Router() apirouter.Router[HandlerFunc, Route] {
 	return r.router
+}
+
+// SubRouter creates a new router with the given path prefix
+func (r Router[HandlerFunc, Route]) SubRouter(router apirouter.Router[HandlerFunc, Route], opts SubRouterOptions) (*Router[HandlerFunc, Route], error) {
+	return &Router[HandlerFunc, Route]{
+		router:                router,
+		swaggerSchema:         r.swaggerSchema,
+		context:               r.context,
+		jsonDocumentationPath: r.jsonDocumentationPath,
+		yamlDocumentationPath: r.yamlDocumentationPath,
+		pathPrefix:            opts.PathPrefix,
+	}, nil
 }
 
 // SwaggerSchema returns the OpenAPI schema being used by the router
@@ -112,18 +131,15 @@ func NewRouter[HandlerFunc, Route any](router apirouter.Router[HandlerFunc, Rout
 	}, nil
 }
 
-type SubRouterOptions struct {
-	PathPrefix string
-}
-
-func (r Router[HandlerFunc, Route]) SubRouter(router apirouter.Router[HandlerFunc, Route], opts SubRouterOptions) (*Router[HandlerFunc, Route], error) {
+func (r Router[HandlerFunc, Route]) Group(pathPrefix string) (*Router[HandlerFunc, Route], error) {
+	apiGroupRouter := r.router.Group(pathPrefix)
 	return &Router[HandlerFunc, Route]{
-		router:                router,
+		router:                apiGroupRouter,
 		swaggerSchema:         r.swaggerSchema,
 		context:               r.context,
 		jsonDocumentationPath: r.jsonDocumentationPath,
 		yamlDocumentationPath: r.yamlDocumentationPath,
-		pathPrefix:            opts.PathPrefix,
+		pathPrefix:            path.Join(r.pathPrefix, pathPrefix),
 	}, nil
 }
 

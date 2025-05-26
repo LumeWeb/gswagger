@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 	swagger "go.lumeweb.com/gswagger"
 	"go.lumeweb.com/gswagger/support/testutils"
-	"go.lumeweb.com/gswagger/support/testutils"
 )
 
 const (
@@ -72,9 +71,7 @@ func TestEchoIntegration(t *testing.T) {
 	t.Run("works correctly with subrouter - handles path prefix - echo", func(t *testing.T) {
 		eRouter, oasRouter := setupEchoSwagger(t)
 
-		subRouter, err := oasRouter.SubRouter(oasEcho.NewRouter(eRouter), swagger.SubRouterOptions{
-			PathPrefix: "/prefix",
-		})
+		subRouter, err := oasRouter.Group("/prefix")
 		require.NoError(t, err)
 
 		_, err = subRouter.AddRoute(http.MethodGet, "/foo", okHandler, swagger.Definitions{})

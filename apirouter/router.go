@@ -5,4 +5,5 @@ type Router[HandlerFunc any, Route any] interface {
 	SwaggerHandler(contentType string, blob []byte) HandlerFunc
 	TransformPathToOasPath(path string) string
 	Router() any
+	Group(pathPrefix string) Router[HandlerFunc, Route]
 }
