@@ -29,6 +29,46 @@ func TestMiddleware(t *testing.T) {
 		Paths: &openapi3.Paths{},
 	}
 
+	t.Run("root router Use delegates to underlying router", func(t *testing.T) {
+		middlewareCalled := false
+		router, err := NewRouter(mAPIRouter, Options{
+			Openapi: openapi,
+		})
+		require.NoError(t, err)
+
+		router.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				middlewareCalled = true
+				next.ServeHTTP(w, r)
+			})
+		})
+
+		router.AddRoute(http.MethodGet, "/test", func(w http.ResponseWriter, req *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}, Definitions{})
+
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, "/test", nil)
+		muxRouter.ServeHTTP(w, r)
+
+		require.True(t, middlewareCalled)
+		require.Equal(t, http.StatusOK, w.Result().StatusCode)
+	})
+}
+
+func TestMiddleware(t *testing.T) {
+	muxRouter := mux.NewRouter()
+	mAPIRouter := gorilla.NewRouter(muxRouter)
+
+	info := &openapi3.Info{
+		Title:   "middleware test",
+		Version: "1.0",
+	}
+	openapi := &openapi3.T{
+		Info:  info,
+		Paths: &openapi3.Paths{},
+	}
+
 	t.Run("middleware is called via Use", func(t *testing.T) {
 		middlewareCalled := false
 		router, err := NewRouter(mAPIRouter, Options{
