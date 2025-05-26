@@ -17,8 +17,8 @@ import (
 )
 
 func TestMiddleware(t *testing.T) {
-	muxRouter := mux.NewRouter()
-	mAPIRouter := gorilla.NewRouter(muxRouter)
+	_mux := mux.NewRouter()
+	mAPIRouter := gorilla.NewRouter(_mux)
 
 	info := &openapi3.Info{
 		Title:   "middleware test",
@@ -56,7 +56,7 @@ func TestMiddleware(t *testing.T) {
 	})
 }
 
-func TestMiddleware(t *testing.T) {
+func TestMiddlewareViaUseAndAddRoute(t *testing.T) {
 	muxRouter := mux.NewRouter()
 	mAPIRouter := gorilla.NewRouter(muxRouter)
 
