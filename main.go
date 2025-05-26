@@ -45,6 +45,8 @@ const (
 // Router handle the api router and the openapi schema.
 // api router supported out of the box are:
 // - gorilla mux
+// - fiber
+// - echo
 // SubRouterOptions contains options for creating a subrouter
 type SubRouterOptions struct {
 	PathPrefix string
@@ -62,6 +64,11 @@ type Router[HandlerFunc any, MiddlewareFunc any, Route any] struct {
 // Router returns the underlying router implementation
 func (r *Router[HandlerFunc, MiddlewareFunc, Route]) Router() apirouter.Router[HandlerFunc, MiddlewareFunc, Route] {
 	return r.router
+}
+
+// Use adds middleware to the router that will be executed for all routes
+func (r *Router[HandlerFunc, MiddlewareFunc, Route]) Use(middleware ...MiddlewareFunc) {
+	r.router.Use(middleware...)
 }
 
 // SubRouter creates a new router with the given path prefix
