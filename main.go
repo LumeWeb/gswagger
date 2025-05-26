@@ -30,7 +30,7 @@ var (
 // Example:
 //
 //	router := GetRouter[*mux.Router](swaggerRouter)
-func GetRouter[T any, H any, R any, M any](r apirouter.Router[H, R, M]) T {
+func GetRouter[T any, H any, M any, R any](r apirouter.Router[H, M, R]) T {
 	return r.Router().(T)
 }
 
