@@ -14,23 +14,17 @@ import (
 )
 
 var (
-	// ErrGenerateOAS throws when fails the marshalling of the swagger struct.
 	ErrGenerateOAS = errors.New("fail to generate openapi")
-	// ErrValidatingOAS throws when given openapi params are not correct.
 	ErrValidatingOAS = errors.New("fails to validate openapi")
-
-	// Deprecated: ErrGenerateSwagger has been deprecated, use ErrGenerateOAS instead.
 	ErrGenerateSwagger = ErrGenerateOAS
-	// Deprecated: ErrValidatingSwagger has been deprecated, use ErrValidatingOAS instead.
 	ErrValidatingSwagger = ErrValidatingOAS
 )
 
-// GetRouter returns the underlying router instance cast to the specified type.
-// This provides type-safe access to the concrete router implementation.
-// Example:
-//
-//	router := GetRouter[*mux.Router](swaggerRouter)
 func GetRouter[T any, H any, M any, R any](r apirouter.Router[H, M, R]) T {
+	if r == nil || r.Router() == nil {
+		var zero T
+		return zero // Return zero value for the type T
+	}
 	return r.Router().(T)
 }
 
@@ -42,54 +36,149 @@ const (
 	defaultOpenapiVersion        = "3.0.0"
 )
 
-// Router handle the api router and the openapi schema.
-// api router supported out of the box are:
-// - gorilla mux
-// - fiber
-// - echo
-// SubRouterOptions contains options for creating a subrouter
+// Router provides API routing with integrated OpenAPI schema generation.
+// Supports multiple router implementations (gorilla/mux, fiber, echo) with:
+// - Host-specific routing with isolated schemas
+// - Route grouping by path prefixes
+// - Middleware chaining
+// - Automatic OpenAPI documentation generation
 type SubRouterOptions struct {
 	PathPrefix string
 }
 
+// Router wraps framework routers while maintaining OpenAPI documentation.
+// 
+// Type parameters:
+//   - HandlerFunc: Framework-specific handler function type
+//   - MiddlewareFunc: Framework-specific middleware function type  
+//   - Route: Framework-specific route type
 type Router[HandlerFunc any, MiddlewareFunc any, Route any] struct {
-	router                apirouter.Router[HandlerFunc, MiddlewareFunc, Route]
-	swaggerSchema         *openapi3.T
-	context               context.Context
+	router apirouter.Router[HandlerFunc, MiddlewareFunc, Route]
+
+	swaggerSchema *openapi3.T
+	context       context.Context
+
 	jsonDocumentationPath string
 	yamlDocumentationPath string
-	pathPrefix            string
+
+	pathPrefix string
+
+	host string
+
+	rootRouter *Router[HandlerFunc, MiddlewareFunc, Route]
+
+	hostRouters map[string]*Router[HandlerFunc, MiddlewareFunc, Route]
+
+	defaultRouter *Router[HandlerFunc, MiddlewareFunc, Route]
+
+	frameworkRouterFactory func() apirouter.Router[HandlerFunc, MiddlewareFunc, Route]
 }
 
-// Router returns the underlying router implementation
+// Router returns the underlying router implementation for the current context (default, group, or host)
+// Router returns the underlying framework-specific router instance.
+// This allows accessing framework-specific functionality when needed.
 func (r *Router[HandlerFunc, MiddlewareFunc, Route]) Router() apirouter.Router[HandlerFunc, MiddlewareFunc, Route] {
 	return r.router
 }
 
 // Use adds middleware to the router that will be executed for all routes
+// registered on this router instance. Middleware executes in the order they
+// are added.
 func (r *Router[HandlerFunc, MiddlewareFunc, Route]) Use(middleware ...MiddlewareFunc) {
 	r.router.Use(middleware...)
 }
 
-// SubRouter creates a new router with the given path prefix
-func (r Router[HandlerFunc, MiddlewareFunc, Route]) SubRouter(router apirouter.Router[HandlerFunc, MiddlewareFunc, Route], opts SubRouterOptions) (*Router[HandlerFunc, MiddlewareFunc, Route], error) {
+// SubRouter creates a new router with the given path prefix.
+// The new router shares the same OpenAPI schema and documentation paths as the parent,
+// but routes are prefixed with the specified path.
+func (r *Router[HandlerFunc, MiddlewareFunc, Route]) SubRouter(router apirouter.Router[HandlerFunc, MiddlewareFunc, Route], opts SubRouterOptions) (*Router[HandlerFunc, MiddlewareFunc, Route], error) {
+	if r.rootRouter == nil {
+		return nil, errors.New("SubRouter() can only be called on a router with rootRouter set")
+	}
 	return &Router[HandlerFunc, MiddlewareFunc, Route]{
-		router:                router,
-		swaggerSchema:         r.swaggerSchema,
-		context:               r.context,
-		jsonDocumentationPath: r.jsonDocumentationPath,
-		yamlDocumentationPath: r.yamlDocumentationPath,
-		pathPrefix:            opts.PathPrefix,
+		router:                router,                                   // Use the provided router
+		swaggerSchema:         r.rootRouter.swaggerSchema,               // Share the root schema
+		context:               r.rootRouter.context,                     // Share the root context
+		jsonDocumentationPath: r.rootRouter.jsonDocumentationPath,       // Share doc paths
+		yamlDocumentationPath: r.rootRouter.yamlDocumentationPath,       // Share doc paths
+		pathPrefix:            path.Join(r.pathPrefix, opts.PathPrefix), // Append prefix
+		host:                  r.host,                                   // Inherit host
+		rootRouter:            r.rootRouter,                             // Reference the root router
 	}, nil
 }
 
-// SwaggerSchema returns the OpenAPI schema being used by the router
-func (r Router[HandlerFunc, MiddlewareFunc, Route]) SwaggerSchema() *openapi3.T {
-	return r.swaggerSchema
+// Group creates a new router group with prefix and optional group-level middleware.
+// Routes added to the returned router will inherit the parent's host and append the path prefix.
+// Group creates a new router group with the given path prefix.
+// Routes added to the group will have their paths prefixed with group's path.
+// The group inherits the parent's host and shares the root OpenAPI schema.
+// Returns an error if pathPrefix is invalid.
+func (r *Router[HandlerFunc, MiddlewareFunc, Route]) Group(pathPrefix string) (*Router[HandlerFunc, MiddlewareFunc, Route], error) {
+	apiGroupRouter := r.router.Group(pathPrefix)
+	return &Router[HandlerFunc, MiddlewareFunc, Route]{
+		router:                apiGroupRouter,
+		swaggerSchema:         r.rootRouter.swaggerSchema,          // Share the root schema
+		context:               r.rootRouter.context,                // Share the root context
+		jsonDocumentationPath: r.rootRouter.jsonDocumentationPath,  // Share doc paths
+		yamlDocumentationPath: r.rootRouter.yamlDocumentationPath,  // Share doc paths
+		pathPrefix:            path.Join(r.pathPrefix, pathPrefix), // Append prefix
+		host:                  r.host,                              // Inherit host from parent
+		rootRouter:            r.rootRouter,                        // Reference the root router
+	}, nil
 }
 
-// Options to be passed to create the new router and swagger
-type Options struct {
+// Host creates a new router instance configured for a specific host.
+// This method must be called on the root router instance.
+// Routes added to the returned router will only match requests for the specified host
+// and will be documented with a server object for that host.
+// Host creates a new router instance configured for a specific host.
+// The host router maintains its own isolated OpenAPI schema while sharing
+// documentation paths and context with the root router.
+// Must be called on the root router instance.
+// Returns an error if:
+// - Called on non-root router
+// - Host is empty
+// - FrameworkRouterFactory is not set
+func (r *Router[HandlerFunc, MiddlewareFunc, Route]) Host(host string) (*Router[HandlerFunc, MiddlewareFunc, Route], error) {
+	if r.rootRouter != r {
+		return nil, errors.New("Host() can only be called on the root router instance")
+	}
+	if host == "" {
+		return nil, errors.New("Host name cannot be empty")
+	}
+
+	if existingRouter, ok := r.hostRouters[host]; ok {
+		return existingRouter, nil
+	}
+
+	if r.frameworkRouterFactory == nil {
+		return nil, errors.New("FrameworkRouterFactory is not set in NewRouter Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]")
+	}
+	newFrameworkRouter := r.frameworkRouterFactory()
+
+	hostSchema := &openapi3.T{
+		Info:    r.swaggerSchema.Info,
+		OpenAPI: r.swaggerSchema.OpenAPI,
+		Paths:   &openapi3.Paths{},
+	}
+
+	hostRouter := &Router[HandlerFunc, MiddlewareFunc, Route]{
+		router:                newFrameworkRouter,
+		swaggerSchema:         hostSchema,
+		context:               r.context,
+		jsonDocumentationPath: r.jsonDocumentationPath,
+		yamlDocumentationPath: r.yamlDocumentationPath,
+		pathPrefix:            "",
+		host:                  host,
+		rootRouter:            r,
+	}
+
+	r.hostRouters[host] = hostRouter
+
+	return hostRouter, nil
+}
+
+type Options[HandlerFunc any, MiddlewareFunc any, Route any] struct {
 	Context context.Context
 	Openapi *openapi3.T
 	// JSONDocumentationPath is the path exposed by json endpoint. Default to /documentation/json.
@@ -98,10 +187,12 @@ type Options struct {
 	YAMLDocumentationPath string
 	// Add path prefix to add to every router path.
 	PathPrefix string
+	// FrameworkRouterFactory is a function that creates a new instance of the underlying framework router.
+	// This is required when using the Host() method to manage multiple host-specific routers.
+	FrameworkRouterFactory func() apirouter.Router[HandlerFunc, MiddlewareFunc, Route]
 }
 
-// NewRouter generate new router with openapi. Default to OpenAPI 3.0.0
-func NewRouter[HandlerFunc, MiddlewareFunc, Route any](router apirouter.Router[HandlerFunc, MiddlewareFunc, Route], options Options) (*Router[HandlerFunc, MiddlewareFunc, Route], error) {
+func NewRouter[HandlerFunc, MiddlewareFunc, Route any](frameworkRouter apirouter.Router[HandlerFunc, MiddlewareFunc, Route], options Options[HandlerFunc, MiddlewareFunc, Route]) (*Router[HandlerFunc, MiddlewareFunc, Route], error) {
 	openapi, err := generateNewValidOpenapi(options.Openapi)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrValidatingOAS, err)
@@ -128,27 +219,71 @@ func NewRouter[HandlerFunc, MiddlewareFunc, Route any](router apirouter.Router[H
 		jsonDocumentationPath = options.JSONDocumentationPath
 	}
 
-	return &Router[HandlerFunc, MiddlewareFunc, Route]{
-		router:                router,
-		swaggerSchema:         openapi,
-		context:               ctx,
-		yamlDocumentationPath: yamlDocumentationPath,
-		jsonDocumentationPath: jsonDocumentationPath,
-		pathPrefix:            options.PathPrefix,
-	}, nil
+	defaultFrameworkRouterWithPrefix := frameworkRouter
+	if options.PathPrefix != "" {
+		defaultFrameworkRouterWithPrefix = frameworkRouter.Group(options.PathPrefix)
+	}
+
+	root := &Router[HandlerFunc, MiddlewareFunc, Route]{
+		router:                 defaultFrameworkRouterWithPrefix,
+		swaggerSchema:          openapi,
+		context:                ctx,
+		yamlDocumentationPath:  yamlDocumentationPath,
+		jsonDocumentationPath:  jsonDocumentationPath,
+		pathPrefix:             options.PathPrefix,
+		host:                   "",
+		rootRouter:             nil,
+		hostRouters:            make(map[string]*Router[HandlerFunc, MiddlewareFunc, Route]),
+		defaultRouter:          nil,
+		frameworkRouterFactory: options.FrameworkRouterFactory,
+	}
+	root.rootRouter = root
+	root.defaultRouter = root
+
+	return root, nil
 }
 
-func (r Router[HandlerFunc, MiddlewareFunc, Route]) Group(pathPrefix string) (*Router[HandlerFunc, MiddlewareFunc, Route], error) {
-	apiGroupRouter := r.router.Group(pathPrefix)
-	return &Router[HandlerFunc, MiddlewareFunc, Route]{
-		router:                apiGroupRouter,
-		swaggerSchema:         r.swaggerSchema,
-		context:               r.context,
-		jsonDocumentationPath: r.jsonDocumentationPath,
-		yamlDocumentationPath: r.yamlDocumentationPath,
-		pathPrefix:            path.Join(r.pathPrefix, pathPrefix),
-	}, nil
+func (r *Router[HandlerFunc, MiddlewareFunc, Route]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	if r.rootRouter != r {
+		http.Error(w, "Internal Server Error: ServeHTTP called on non-root router", http.StatusInternalServerError)
+		return
+	}
+
+	host := req.Host
+	var handlerRouter *Router[HandlerFunc, MiddlewareFunc, Route]
+
+	if hostRouter, ok := r.hostRouters[host]; ok && hostRouter != nil {
+		handlerRouter = hostRouter
+	} else {
+		handlerRouter = r.defaultRouter
+	}
+
+	if handlerRouter == nil {
+		http.Error(w, "Not Found", http.StatusNotFound)
+		return
+	}
+
+	if req.URL.Path == handlerRouter.jsonDocumentationPath || req.URL.Path == handlerRouter.yamlDocumentationPath {
+		if handler, ok := handlerRouter.router.Router().(http.Handler); ok {
+			handler.ServeHTTP(w, req)
+			return
+		}
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	if handler, ok := handlerRouter.router.Router().(http.Handler); ok {
+		handler.ServeHTTP(w, req)
+		return
+	}
+
+	http.Error(w, "Not Found", http.StatusNotFound)
 }
+
+// AddRoute adds a route with OpenAPI schema inferred from Definitions.
+// Automatically handles path parameters, request bodies, and responses.
+// The route is added to both the router and OpenAPI schema.
+// Returns the framework-specific route object and any validation errors.
 
 func generateNewValidOpenapi(openapi *openapi3.T) (*openapi3.T, error) {
 	if openapi == nil {
@@ -174,24 +309,64 @@ func generateNewValidOpenapi(openapi *openapi3.T) (*openapi3.T, error) {
 	return openapi, nil
 }
 
-// GenerateAndExposeOpenapi creates a /documentation/json route on router and
-// expose the generated swagger
-func (r Router[_, _, _]) GenerateAndExposeOpenapi() error {
-	if err := r.swaggerSchema.Validate(r.context); err != nil {
-		return fmt.Errorf("%w: %s", ErrValidatingOAS, err)
+func (r *Router[HandlerFunc, MiddlewareFunc, Route]) GenerateAndExposeOpenapi() error {
+	if r.host != "" {
+		if err := r.swaggerSchema.Validate(r.context); err != nil {
+			return fmt.Errorf("%w for host %s: %s", ErrValidatingOAS, r.host, err)
+		}
+
+		jsonDocumentationPath := path.Join(r.pathPrefix, r.jsonDocumentationPath)
+		yamlDocumentationPath := path.Join(r.pathPrefix, r.yamlDocumentationPath)
+
+		jsonSwagger, err := r.swaggerSchema.MarshalJSON()
+		if err != nil {
+			return fmt.Errorf("%w json marshal for host %s: %s", ErrGenerateOAS, r.host, err)
+		}
+		r.router.AddRoute(http.MethodGet, jsonDocumentationPath, r.router.SwaggerHandler("application/json", jsonSwagger))
+
+		yamlSwagger, err := yaml.JSONToYAML(jsonSwagger)
+		if err != nil {
+			return fmt.Errorf("%w yaml marshal for host %s: %s", ErrGenerateOAS, r.host, err)
+		}
+		r.router.AddRoute(http.MethodGet, yamlDocumentationPath, r.router.SwaggerHandler("text/plain", yamlSwagger))
+		return nil
 	}
 
-	jsonSwagger, err := r.swaggerSchema.MarshalJSON()
-	if err != nil {
-		return fmt.Errorf("%w json marshal: %s", ErrGenerateOAS, err)
-	}
-	r.router.AddRoute(http.MethodGet, r.jsonDocumentationPath, r.router.SwaggerHandler("application/json", jsonSwagger))
+	if r.defaultRouter != nil {
+		if err := r.defaultRouter.swaggerSchema.Validate(r.context); err != nil {
+			return fmt.Errorf("%w: %s", ErrValidatingOAS, err)
+		}
 
-	yamlSwagger, err := yaml.JSONToYAML(jsonSwagger)
-	if err != nil {
-		return fmt.Errorf("%w yaml marshal: %s", ErrGenerateOAS, err)
+		jsonSwagger, err := r.defaultRouter.swaggerSchema.MarshalJSON()
+		if err != nil {
+			return fmt.Errorf("%w json marshal: %s", ErrGenerateOAS, err)
+		}
+		r.defaultRouter.router.AddRoute(http.MethodGet, r.jsonDocumentationPath, r.defaultRouter.router.SwaggerHandler("application/json", jsonSwagger))
+
+		yamlSwagger, err := yaml.JSONToYAML(jsonSwagger)
+		if err != nil {
+			return fmt.Errorf("%w yaml marshal: %s", ErrGenerateOAS, err)
+		}
+		r.defaultRouter.router.AddRoute(http.MethodGet, r.yamlDocumentationPath, r.defaultRouter.router.SwaggerHandler("text/plain", yamlSwagger))
 	}
-	r.router.AddRoute(http.MethodGet, r.yamlDocumentationPath, r.router.SwaggerHandler("text/plain", yamlSwagger))
+
+	for host, hostRouter := range r.hostRouters {
+		if err := hostRouter.swaggerSchema.Validate(r.context); err != nil {
+			return fmt.Errorf("%w for host %s: %s", ErrValidatingOAS, host, err)
+		}
+
+		jsonSwagger, err := hostRouter.swaggerSchema.MarshalJSON()
+		if err != nil {
+			return fmt.Errorf("%w json marshal for host %s: %s", ErrGenerateOAS, host, err)
+		}
+		hostRouter.router.AddRoute(http.MethodGet, hostRouter.jsonDocumentationPath, hostRouter.router.SwaggerHandler("application/json", jsonSwagger))
+
+		yamlSwagger, err := yaml.JSONToYAML(jsonSwagger)
+		if err != nil {
+			return fmt.Errorf("%w yaml marshal for host %s: %s", ErrGenerateOAS, host, err)
+		}
+		hostRouter.router.AddRoute(http.MethodGet, hostRouter.yamlDocumentationPath, hostRouter.router.SwaggerHandler("text/plain", yamlSwagger))
+	}
 
 	return nil
 }

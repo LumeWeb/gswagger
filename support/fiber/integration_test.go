@@ -120,7 +120,7 @@ func setupSwagger(t *testing.T) (*fiber.App, *swagger.Router[oasFiber.HandlerFun
 	context := context.Background()
 	fiberRouter := fiber.New()
 
-	router, err := swagger.NewRouter(oasFiber.NewRouter(fiberRouter), swagger.Options{
+	router, err := swagger.NewRouter(oasFiber.NewRouter(fiberRouter), swagger.Options[oasFiber.HandlerFunc, fiber.Handler, oasFiber.Route]{
 		Context: context,
 		Openapi: &openapi3.T{
 			Info: &openapi3.Info{

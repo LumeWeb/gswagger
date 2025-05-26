@@ -17,21 +17,19 @@ import (
 
 type TestRouter = Router[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]
 
-var muxRouter *mux.Router
-
-func setupRouter(t *testing.T) (*TestRouter, error) {
+func setupRouter(t *testing.T) *TestRouter {
 	t.Helper()
 
 	ctx := context.Background()
-	muxRouter = mux.NewRouter()
+	muxRouter := mux.NewRouter()
 
-	router, err := NewRouter(gorilla.NewRouter(muxRouter), Options{
+	router, err := NewRouter(gorilla.NewRouter(muxRouter), Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
 		Context: ctx,
 		Openapi: getBaseSwagger(t),
 	})
 	require.NoError(t, err)
 
-	return router, nil
+	return router
 }
 
 func okHandler(w http.ResponseWriter, req *http.Request) {
@@ -41,7 +39,7 @@ func okHandler(w http.ResponseWriter, req *http.Request) {
 
 func TestAddRoutes(t *testing.T) {
 	t.Run("schema with path and cookie parameters from Definitions.Parameters", func(t *testing.T) {
-		router, _ := setupRouter(t)
+		router := setupRouter(t)
 
 		route, err := router.AddRoute(http.MethodGet, "/users/{userId}", okHandler, Definitions{
 			Parameters: map[string]ParameterDefinition{
@@ -74,7 +72,7 @@ func TestAddRoutes(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, DefaultJSONDocumentationPath, nil)
-		muxRouter.ServeHTTP(w, req)
+		router.ServeHTTP(w, req)
 
 		err = router.GenerateAndExposeOpenapi()
 		require.NoError(t, err)
@@ -86,7 +84,7 @@ func TestAddRoutes(t *testing.T) {
 	})
 
 	t.Run("schema with parameter using Content", func(t *testing.T) {
-		router, _ := setupRouter(t)
+		router := setupRouter(t)
 
 		type ParamContent struct {
 			Value string `json:"value"`
@@ -119,7 +117,7 @@ func TestAddRoutes(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, DefaultJSONDocumentationPath, nil)
-		muxRouter.ServeHTTP(w, req)
+		router.ServeHTTP(w, req)
 
 		require.Equal(t, http.StatusOK, w.Result().StatusCode)
 		body := readBody(t, w.Result().Body)
@@ -128,7 +126,7 @@ func TestAddRoutes(t *testing.T) {
 	})
 
 	t.Run("schema with headers in multiple responses", func(t *testing.T) {
-		router, _ := setupRouter(t)
+		router := setupRouter(t)
 
 		route, err := router.AddRoute(http.MethodGet, "/multi-response-headers", okHandler, Definitions{
 			Responses: map[int]ContentValue{
@@ -159,7 +157,7 @@ func TestAddRoutes(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, DefaultJSONDocumentationPath, nil)
-		muxRouter.ServeHTTP(w, req)
+		router.ServeHTTP(w, req)
 
 		require.Equal(t, http.StatusOK, w.Result().StatusCode)
 		body := readBody(t, w.Result().Body)
@@ -168,7 +166,7 @@ func TestAddRoutes(t *testing.T) {
 	})
 
 	t.Run("schema with parameters and response headers", func(t *testing.T) {
-		router, _ := setupRouter(t)
+		router := setupRouter(t)
 
 		route, err := router.AddRoute(http.MethodGet, "/test", okHandler, Definitions{
 			Parameters: map[string]ParameterDefinition{
@@ -206,7 +204,7 @@ func TestAddRoutes(t *testing.T) {
 		// Verify the generated OpenAPI schema contains the parameters and headers
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, DefaultJSONDocumentationPath, nil)
-		muxRouter.ServeHTTP(w, req)
+		router.ServeHTTP(w, req)
 
 		require.Equal(t, http.StatusOK, w.Result().StatusCode)
 		body := readBody(t, w.Result().Body)
@@ -215,7 +213,7 @@ func TestAddRoutes(t *testing.T) {
 	})
 
 	t.Run("prioritizes Definitions.Parameters over older parameter fields", func(t *testing.T) {
-		router, _ := setupRouter(t)
+		router := setupRouter(t)
 
 		route, err := router.AddRoute(http.MethodGet, "/prioritization-test", okHandler, Definitions{
 			Parameters: map[string]ParameterDefinition{
@@ -248,7 +246,7 @@ func TestAddRoutes(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, DefaultJSONDocumentationPath, nil)
-		muxRouter.ServeHTTP(w, req)
+		router.ServeHTTP(w, req)
 
 		require.Equal(t, http.StatusOK, w.Result().StatusCode)
 		body := readBody(t, w.Result().Body)
@@ -760,7 +758,7 @@ func TestAddRoutes(t *testing.T) {
 			context := context.Background()
 			r := mux.NewRouter()
 
-			router, err := NewRouter(gorilla.NewRouter(r), Options{
+			router, err := NewRouter(gorilla.NewRouter(r), Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
 				Context: context,
 				Openapi: getBaseSwagger(t),
 			})
@@ -952,8 +950,8 @@ func TestResolveRequestBodySchema(t *testing.T) {
 		},
 	}
 
-	mux := mux.NewRouter()
-	router, err := NewRouter(gorilla.NewRouter(mux), Options{
+	_mux := mux.NewRouter()
+	router, err := NewRouter(gorilla.NewRouter(_mux), Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
 		Openapi: getBaseSwagger(t),
 	})
 	require.NoError(t, err)
@@ -1176,8 +1174,8 @@ func TestResolveResponsesSchema(t *testing.T) {
 		},
 	}
 
-	mux := mux.NewRouter()
-	router, err := NewRouter(gorilla.NewRouter(mux), Options{
+	_mux := mux.NewRouter()
+	router, err := NewRouter(gorilla.NewRouter(_mux), Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
 		Openapi: getBaseSwagger(t),
 	})
 	require.NoError(t, err)
@@ -1346,8 +1344,8 @@ func TestResolveParametersSchema(t *testing.T) {
 		},
 	}
 
-	mux := mux.NewRouter()
-	router, err := NewRouter(gorilla.NewRouter(mux), Options{
+	_mux := mux.NewRouter()
+	router, err := NewRouter(gorilla.NewRouter(_mux), Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
 		Openapi: getBaseSwagger(t),
 	})
 	require.NoError(t, err)

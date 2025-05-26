@@ -6,5 +6,6 @@ type Router[HandlerFunc any, MiddlewareFunc any, Route any] interface {
 	TransformPathToOasPath(path string) string
 	Router() any
 	Group(pathPrefix string) Router[HandlerFunc, MiddlewareFunc, Route]
+	Host(host string) Router[HandlerFunc, MiddlewareFunc, Route]
 	Use(middleware ...MiddlewareFunc)
 }

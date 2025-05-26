@@ -118,11 +118,11 @@ func readBody(t *testing.T, requestBody io.ReadCloser) string {
 func setupSwagger(t *testing.T) (*mux.Router, *SwaggerRouter) {
 	t.Helper()
 
-	context := context.Background()
+	ctx := context.Background()
 	muxRouter := mux.NewRouter()
 
-	router, err := swagger.NewRouter(gorilla.NewRouter(muxRouter), swagger.Options{
-		Context: context,
+	router, err := swagger.NewRouter(gorilla.NewRouter(muxRouter), swagger.Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
+		Context: ctx,
 		Openapi: &openapi3.T{
 			Info: &openapi3.Info{
 				Title:   swaggerOpenapiTitle,
