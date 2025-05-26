@@ -2,6 +2,7 @@ package fiber_test
 
 import (
 	"context"
+	"go.lumeweb.com/gswagger/support/testutils"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -64,7 +65,7 @@ func TestFiberIntegration(t *testing.T) {
 		})
 	})
 
-	t.Run("works correctly with subrouter - handles path prefix - gorilla mux", func(t *testing.T) {
+	t.Run("works correctly with subrouter - handles path prefix - fiber", func(t *testing.T) {
 		fiberRouter, oasRouter := setupSwagger(t)
 
 		subRouter, err := oasRouter.SubRouter(oasFiber.NewRouter(fiberRouter), swagger.SubRouterOptions{
@@ -145,7 +146,6 @@ func okHandler(c *fiber.Ctx) error {
 	c.Status(http.StatusOK)
 	return c.SendString("OK")
 }
-
 
 func readBody(t *testing.T, requestBody io.ReadCloser) string {
 	t.Helper()

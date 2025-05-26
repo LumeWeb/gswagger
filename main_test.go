@@ -433,6 +433,59 @@ func TestGenerateAndExposeSwagger(t *testing.T) {
 	})
 }
 
+func TestGroup(t *testing.T) {
+	t.Run("ok - create a group and add routes", func(t *testing.T) {
+		mRouter := mux.NewRouter()
+
+		router, err := NewRouter(gorilla.NewRouter(mRouter), Options{
+			Openapi: &openapi3.T{
+				Info: &openapi3.Info{
+					Title:   "test openapi title",
+					Version: "test openapi version",
+				},
+			},
+			JSONDocumentationPath: "/custom/path",
+		})
+		require.NoError(t, err)
+
+		// Add a route to the main router
+		router.AddRoute(http.MethodGet, "/foo", func(w http.ResponseWriter, req *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("ok"))
+		}, Definitions{})
+
+		// Create a group
+		apiGroup, err := router.Group("/api/v1")
+		require.NoError(t, err)
+
+		// Add routes to the group
+		_, err = apiGroup.AddRoute(http.MethodGet, "/users", func(w http.ResponseWriter, req *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("ok"))
+		}, Definitions{})
+		require.NoError(t, err)
+
+		_, err = apiGroup.AddRoute(http.MethodPost, "/users", func(w http.ResponseWriter, req *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("ok"))
+		}, Definitions{})
+		require.NoError(t, err)
+
+		err = router.GenerateAndExposeOpenapi()
+		require.NoError(t, err)
+
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/custom/path", nil)
+		mRouter.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Result().StatusCode)
+		body := readBody(t, w.Result().Body)
+		actual, err := os.ReadFile("testdata/group.json")
+		require.NoError(t, err)
+		require.JSONEq(t, string(actual), body, body)
+	})
+}
+
 func TestGetRouter(t *testing.T) {
 	t.Run("gets gorilla router instance", func(t *testing.T) {
 		muxRouter := mux.NewRouter()
