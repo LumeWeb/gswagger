@@ -16,8 +16,53 @@ func TestFiberRouterSupport(t *testing.T) {
 	fiberRouter := fiber.New()
 	ar := NewRouter(fiberRouter)
 
+	t.Run("middleware is applied via Use", func(t *testing.T) {
+		middlewareCalled := false
+		middleware := func(c *fiber.Ctx) error {
+			middlewareCalled = true
+			return c.Next()
+		}
+
+		ar.Use(middleware)
+		ar.AddRoute(http.MethodGet, "/middleware", func(c *fiber.Ctx) error {
+			return c.SendStatus(http.StatusOK)
+		})
+
+		r := httptest.NewRequest(http.MethodGet, "/middleware", nil)
+		resp, err := fiberRouter.Test(r)
+		require.NoError(t, err)
+
+		require.True(t, middlewareCalled)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+	})
+
+	t.Run("middleware is applied via AddRoute", func(t *testing.T) {
+		mw1Called := false
+		mw2Called := false
+		mw1 := func(c *fiber.Ctx) error {
+			mw1Called = true
+			return c.Next()
+		}
+		mw2 := func(c *fiber.Ctx) error {
+			mw2Called = true
+			return c.Next()
+		}
+
+		ar.AddRoute(http.MethodGet, "/route-mw", func(c *fiber.Ctx) error {
+			return c.SendStatus(http.StatusOK)
+		}, mw1, mw2)
+
+		r := httptest.NewRequest(http.MethodGet, "/route-mw", nil)
+		resp, err := fiberRouter.Test(r)
+		require.NoError(t, err)
+
+		require.True(t, mw1Called)
+		require.True(t, mw2Called)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+	})
+
 	t.Run("create a new api router", func(t *testing.T) {
-		require.Implements(t, (*apirouter.Router[HandlerFunc, Route])(nil), ar)
+		require.Implements(t, (*apirouter.Router[HandlerFunc, HandlerFunc, Route])(nil), ar)
 	})
 
 	t.Run("add new route", func(t *testing.T) {

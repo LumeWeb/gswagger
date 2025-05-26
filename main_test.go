@@ -13,8 +13,114 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/require"
-	"go.lumeweb.com/gswagger/support/gorilla"
+	gorilla "go.lumeweb.com/gswagger/support/gorilla"
 )
+
+func TestMiddleware(t *testing.T) {
+	muxRouter := mux.NewRouter()
+	mAPIRouter := gorilla.NewRouter(muxRouter)
+
+	info := &openapi3.Info{
+		Title:   "middleware test",
+		Version: "1.0",
+	}
+	openapi := &openapi3.T{
+		Info:  info,
+		Paths: &openapi3.Paths{},
+	}
+
+	t.Run("middleware is called via Use", func(t *testing.T) {
+		middlewareCalled := false
+		router, err := NewRouter(mAPIRouter, Options{
+			Openapi: openapi,
+		})
+		require.NoError(t, err)
+
+		router.Router().Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				middlewareCalled = true
+				next.ServeHTTP(w, r)
+			})
+		})
+
+		router.AddRoute(http.MethodGet, "/test", func(w http.ResponseWriter, req *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}, Definitions{})
+
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, "/test", nil)
+		muxRouter.ServeHTTP(w, r)
+
+		require.True(t, middlewareCalled)
+		require.Equal(t, http.StatusOK, w.Result().StatusCode)
+	})
+
+	t.Run("middleware is called via AddRoute", func(t *testing.T) {
+		mw1Called := false
+		mw2Called := false
+		mw1 := func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mw1Called = true
+				next.ServeHTTP(w, r)
+			})
+		}
+		mw2 := func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mw2Called = true
+				next.ServeHTTP(w, r)
+			})
+		}
+
+		router, err := NewRouter(mAPIRouter, Options{
+			Openapi: openapi,
+		})
+		require.NoError(t, err)
+
+		router.AddRoute(http.MethodGet, "/route-mw", func(w http.ResponseWriter, req *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}, Definitions{}, mw1, mw2)
+
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, "/route-mw", nil)
+		muxRouter.ServeHTTP(w, r)
+
+		require.True(t, mw1Called)
+		require.True(t, mw2Called)
+		require.Equal(t, http.StatusOK, w.Result().StatusCode)
+	})
+
+	t.Run("multiple middleware are called in order via Use", func(t *testing.T) {
+		var callOrder []string
+		router, err := NewRouter(mAPIRouter, Options{
+			Openapi: openapi,
+		})
+		require.NoError(t, err)
+
+		router.Router().Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				callOrder = append(callOrder, "first")
+				next.ServeHTTP(w, r)
+			})
+		})
+		router.Router().Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				callOrder = append(callOrder, "second")
+				next.ServeHTTP(w, r)
+			})
+		})
+
+		router.AddRoute(http.MethodGet, "/order", func(w http.ResponseWriter, req *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}, Definitions{})
+
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, "/order", nil)
+		muxRouter.ServeHTTP(w, r)
+
+		require.Equal(t, []string{"first", "second"}, callOrder)
+		require.Equal(t, http.StatusOK, w.Result().StatusCode)
+	})
+}
 
 func TestNewRouter(t *testing.T) {
 	muxRouter := mux.NewRouter()
@@ -42,7 +148,7 @@ func TestNewRouter(t *testing.T) {
 		})
 
 		require.NoError(t, err)
-		require.Equal(t, &Router[gorilla.HandlerFunc, gorilla.Route]{
+		require.Equal(t, &Router[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
 			context:               context.Background(),
 			router:                mAPIRouter,
 			swaggerSchema:         openapi,
@@ -60,7 +166,7 @@ func TestNewRouter(t *testing.T) {
 		})
 
 		require.NoError(t, err)
-		require.Equal(t, &Router[gorilla.HandlerFunc, gorilla.Route]{
+		require.Equal(t, &Router[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
 			context:               ctx,
 			router:                mAPIRouter,
 			swaggerSchema:         openapi,
@@ -80,7 +186,7 @@ func TestNewRouter(t *testing.T) {
 		})
 
 		require.NoError(t, err)
-		require.Equal(t, &Router[gorilla.HandlerFunc, gorilla.Route]{
+		require.Equal(t, &Router[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
 			context:               ctx,
 			router:                mAPIRouter,
 			swaggerSchema:         openapi,
