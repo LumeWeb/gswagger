@@ -178,6 +178,15 @@ func (r *Router[HandlerFunc, MiddlewareFunc, Route]) Host(host string) (*Router[
 	return hostRouter, nil
 }
 
+// SwaggerSchema sets the OpenAPI schema for the router instance.
+// This allows modifying the schema after router creation, particularly useful
+// for host-specific routers where you want to customize the schema.
+// Returns the router instance for method chaining.
+func (r *Router[HandlerFunc, MiddlewareFunc, Route]) SwaggerSchema(schema *openapi3.T) *Router[HandlerFunc, MiddlewareFunc, Route] {
+	r.swaggerSchema = schema
+	return r
+}
+
 type Options[HandlerFunc any, MiddlewareFunc any, Route any] struct {
 	Context context.Context
 	Openapi *openapi3.T
