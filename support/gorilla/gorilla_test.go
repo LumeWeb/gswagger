@@ -12,6 +12,61 @@ import (
 )
 
 func TestGorillaMuxRouter(t *testing.T) {
+	t.Run("group with empty path prefix", func(t *testing.T) {
+		muxRouter := mux.NewRouter()
+		ar := NewRouter(muxRouter)
+
+		middlewareCalled := false
+		mw := func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				middlewareCalled = true
+				next.ServeHTTP(w, r)
+			})
+		}
+
+		// Create group with empty path
+		group := ar.Group("")
+		group.Use(mw)
+		group.AddRoute(http.MethodGet, "/test", func(w http.ResponseWriter, req *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, "/test", nil)
+		muxRouter.ServeHTTP(w, r)
+
+		require.Equal(t, http.StatusOK, w.Result().StatusCode)
+		require.True(t, middlewareCalled)
+	})
+
+	t.Run("child group with empty path prefix", func(t *testing.T) {
+		muxRouter := mux.NewRouter()
+		ar := NewRouter(muxRouter)
+
+		middlewareCalled := false
+		mw := func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				middlewareCalled = true
+				next.ServeHTTP(w, r)
+			})
+		}
+
+		// Create parent group
+		parentGroup := ar.Group("/api")
+		// Create child group with empty path
+		childGroup := parentGroup.Group("")
+		childGroup.Use(mw)
+		childGroup.AddRoute(http.MethodGet, "/test", func(w http.ResponseWriter, req *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+		muxRouter.ServeHTTP(w, r)
+
+		require.Equal(t, http.StatusOK, w.Result().StatusCode)
+		require.True(t, middlewareCalled)
+	})
 	muxRouter := mux.NewRouter()
 	ar := NewRouter(muxRouter)
 

@@ -87,9 +87,7 @@ func TestEchoIntegration(t *testing.T) {
 			eRouter.ServeHTTP(w, r)
 
 			require.Equal(t, http.StatusOK, w.Result().StatusCode)
-
-			body := readBody(t, w.Result().Body)
-			require.Equal(t, "OK", body)
+			require.Equal(t, "OK", readBody(t, w.Result().Body))
 		})
 
 		t.Run("correctly call sub router", func(t *testing.T) {
@@ -99,9 +97,16 @@ func TestEchoIntegration(t *testing.T) {
 			eRouter.ServeHTTP(w, r)
 
 			require.Equal(t, http.StatusOK, w.Result().StatusCode)
+			require.Equal(t, "OK", readBody(t, w.Result().Body))
+		})
 
-			body := readBody(t, w.Result().Body)
-			require.Equal(t, "OK", body)
+		t.Run("returns 404 for non-prefixed path", func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, "/foo", nil)
+
+			eRouter.ServeHTTP(w, r)
+
+			require.Equal(t, http.StatusNotFound, w.Result().StatusCode)
 		})
 
 		t.Run("and generate swagger", func(t *testing.T) {

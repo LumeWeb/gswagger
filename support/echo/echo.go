@@ -2,7 +2,6 @@ package echo
 
 import (
 	"go.lumeweb.com/gswagger/apirouter"
-	"path"
 	"strings"
 
 	"net/http"
@@ -15,20 +14,22 @@ type Route = *echo.Route
 var _ apirouter.Router[echo.HandlerFunc, echo.MiddlewareFunc, Route] = (*echoRouter)(nil)
 
 type echoRouter struct {
-	router     *echo.Echo
-	group      *echo.Group
-	pathPrefix string
+	router *echo.Echo
+	group  *echo.Group
 }
 
 func (r echoRouter) AddRoute(method string, _path string, handler echo.HandlerFunc, middleware ...echo.MiddlewareFunc) Route {
-	fullPath := _path
-	if r.pathPrefix != "" {
-		fullPath = path.Join(r.pathPrefix, _path)
-	}
 	if len(middleware) > 0 {
-		return r.router.Add(method, fullPath, handler, middleware...)
+		if r.group != nil {
+			return r.group.Add(method, _path, handler, middleware...)
+		}
+		return r.router.Add(method, _path, handler, middleware...)
 	}
-	return r.router.Add(method, fullPath, handler)
+
+	if r.group != nil {
+		return r.group.Add(method, _path, handler)
+	}
+	return r.router.Add(method, _path, handler)
 }
 
 func (r echoRouter) SwaggerHandler(contentType string, blob []byte) echo.HandlerFunc {
@@ -39,6 +40,7 @@ func (r echoRouter) SwaggerHandler(contentType string, blob []byte) echo.Handler
 }
 
 func (r echoRouter) TransformPathToOasPath(path string) string {
+	// Echo handles path prefixes internally, so we don't need to prepend them here
 	return apirouter.TransformPathParamsWithColon(path)
 }
 
@@ -56,20 +58,23 @@ func NewRouter(router *echo.Echo) apirouter.Router[echo.HandlerFunc, echo.Middle
 }
 
 func (r echoRouter) Group(pathPrefix string) apirouter.Router[echo.HandlerFunc, echo.MiddlewareFunc, Route] {
-	cleanPrefix := strings.TrimPrefix(pathPrefix, "/")
-	cleanPrefix = strings.TrimSuffix(cleanPrefix, "/")
+	var cleanPrefix string
+	if pathPrefix != "" {
+		cleanPrefix = strings.TrimPrefix(pathPrefix, "/")
+		cleanPrefix = strings.TrimSuffix(cleanPrefix, "/")
+		cleanPrefix = "/" + cleanPrefix
+	}
 
 	var newGroup *echo.Group
 	if r.group != nil {
-		newGroup = r.group.Group("/" + cleanPrefix)
+		newGroup = r.group.Group(cleanPrefix)
 	} else {
-		newGroup = r.router.Group("/" + cleanPrefix)
+		newGroup = r.router.Group(cleanPrefix)
 	}
 
 	return echoRouter{
-		router:     r.router,
-		group:      newGroup,
-		pathPrefix: path.Join(r.pathPrefix, "/"+cleanPrefix),
+		router: r.router,
+		group:  newGroup,
 	}
 }
 

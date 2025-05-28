@@ -14,9 +14,9 @@ import (
 )
 
 var (
-	ErrGenerateOAS = errors.New("fail to generate openapi")
-	ErrValidatingOAS = errors.New("fails to validate openapi")
-	ErrGenerateSwagger = ErrGenerateOAS
+	ErrGenerateOAS       = errors.New("fail to generate openapi")
+	ErrValidatingOAS     = errors.New("fails to validate openapi")
+	ErrGenerateSwagger   = ErrGenerateOAS
 	ErrValidatingSwagger = ErrValidatingOAS
 )
 
@@ -47,10 +47,10 @@ type SubRouterOptions struct {
 }
 
 // Router wraps framework routers while maintaining OpenAPI documentation.
-// 
+//
 // Type parameters:
 //   - HandlerFunc: Framework-specific handler function type
-//   - MiddlewareFunc: Framework-specific middleware function type  
+//   - MiddlewareFunc: Framework-specific middleware function type
 //   - Route: Framework-specific route type
 type Router[HandlerFunc any, MiddlewareFunc any, Route any] struct {
 	router apirouter.Router[HandlerFunc, MiddlewareFunc, Route]
@@ -72,6 +72,8 @@ type Router[HandlerFunc any, MiddlewareFunc any, Route any] struct {
 	defaultRouter *Router[HandlerFunc, MiddlewareFunc, Route]
 
 	frameworkRouterFactory func() apirouter.Router[HandlerFunc, MiddlewareFunc, Route]
+
+	isSubrouter bool
 }
 
 // Router returns the underlying router implementation for the current context (default, group, or host)
@@ -95,16 +97,8 @@ func (r *Router[HandlerFunc, MiddlewareFunc, Route]) SubRouter(router apirouter.
 	if r.rootRouter == nil {
 		return nil, errors.New("SubRouter() can only be called on a router with rootRouter set")
 	}
-	return &Router[HandlerFunc, MiddlewareFunc, Route]{
-		router:                router,                                   // Use the provided router
-		swaggerSchema:         r.rootRouter.swaggerSchema,               // Share the root schema
-		context:               r.rootRouter.context,                     // Share the root context
-		jsonDocumentationPath: r.rootRouter.jsonDocumentationPath,       // Share doc paths
-		yamlDocumentationPath: r.rootRouter.yamlDocumentationPath,       // Share doc paths
-		pathPrefix:            path.Join(r.pathPrefix, opts.PathPrefix), // Append prefix
-		host:                  r.host,                                   // Inherit host
-		rootRouter:            r.rootRouter,                             // Reference the root router
-	}, nil
+
+	return r.Group(opts.PathPrefix)
 }
 
 // Group creates a new router group with prefix and optional group-level middleware.
@@ -124,6 +118,7 @@ func (r *Router[HandlerFunc, MiddlewareFunc, Route]) Group(pathPrefix string) (*
 		pathPrefix:            path.Join(r.pathPrefix, pathPrefix), // Append prefix
 		host:                  r.host,                              // Inherit host from parent
 		rootRouter:            r.rootRouter,                        // Reference the root router
+		isSubrouter:           true,
 	}, nil
 }
 

@@ -13,6 +13,53 @@ import (
 )
 
 func TestFiberRouterSupport(t *testing.T) {
+	t.Run("group with empty path prefix", func(t *testing.T) {
+		fiberApp := fiber.New()
+		ar := NewRouter(fiberApp)
+
+		middlewareCalled := false
+		mw := func(c *fiber.Ctx) error {
+			middlewareCalled = true
+			return c.Next()
+		}
+
+		// Create group with empty path
+		group := ar.Group("")
+		group.Use(mw)
+		group.AddRoute(http.MethodGet, "/test", func(c *fiber.Ctx) error {
+			return c.SendStatus(http.StatusOK)
+		})
+
+		resp, err := fiberApp.Test(httptest.NewRequest(http.MethodGet, "/test", nil))
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		require.True(t, middlewareCalled)
+	})
+
+	t.Run("child group with empty path prefix", func(t *testing.T) {
+		fiberApp := fiber.New()
+		ar := NewRouter(fiberApp)
+
+		middlewareCalled := false
+		mw := func(c *fiber.Ctx) error {
+			middlewareCalled = true
+			return c.Next()
+		}
+
+		// Create parent group
+		parentGroup := ar.Group("/api")
+		// Create child group with empty path
+		childGroup := parentGroup.Group("")
+		childGroup.Use(mw)
+		childGroup.AddRoute(http.MethodGet, "/test", func(c *fiber.Ctx) error {
+			return c.SendStatus(http.StatusOK)
+		})
+
+		resp, err := fiberApp.Test(httptest.NewRequest(http.MethodGet, "/api/test", nil))
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		require.True(t, middlewareCalled)
+	})
 	fiberRouter := fiber.New()
 	ar := NewRouter(fiberRouter)
 

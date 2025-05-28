@@ -12,6 +12,61 @@ import (
 )
 
 func TestEchoRouter(t *testing.T) {
+	t.Run("group with empty path prefix", func(t *testing.T) {
+		echoRouter := echo.New()
+		ar := NewRouter(echoRouter)
+
+		middlewareCalled := false
+		mw := func(next echo.HandlerFunc) echo.HandlerFunc {
+			return func(c echo.Context) error {
+				middlewareCalled = true
+				return next(c)
+			}
+		}
+
+		// Create group with empty path
+		group := ar.Group("")
+		group.Use(mw)
+		group.AddRoute(http.MethodGet, "/test", func(c echo.Context) error {
+			return c.String(http.StatusOK, "")
+		})
+
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, "/test", nil)
+		echoRouter.ServeHTTP(w, r)
+
+		require.Equal(t, http.StatusOK, w.Result().StatusCode)
+		require.True(t, middlewareCalled)
+	})
+
+	t.Run("child group with empty path prefix", func(t *testing.T) {
+		echoRouter := echo.New()
+		ar := NewRouter(echoRouter)
+
+		middlewareCalled := false
+		mw := func(next echo.HandlerFunc) echo.HandlerFunc {
+			return func(c echo.Context) error {
+				middlewareCalled = true
+				return next(c)
+			}
+		}
+
+		// Create parent group
+		parentGroup := ar.Group("/api")
+		// Create child group with empty path
+		childGroup := parentGroup.Group("")
+		childGroup.Use(mw)
+		childGroup.AddRoute(http.MethodGet, "/test", func(c echo.Context) error {
+			return c.String(http.StatusOK, "")
+		})
+
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+		echoRouter.ServeHTTP(w, r)
+
+		require.Equal(t, http.StatusOK, w.Result().StatusCode)
+		require.True(t, middlewareCalled)
+	})
 	echoRouter := echo.New()
 	ar := NewRouter(echoRouter)
 
