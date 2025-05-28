@@ -3,6 +3,8 @@ package swagger
 import (
 	"context"
 	"fmt"
+	"github.com/gofiber/fiber/v2"
+	"github.com/labstack/echo/v4"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,10 +16,12 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/require"
 	"go.lumeweb.com/gswagger/apirouter"
+	gecho "go.lumeweb.com/gswagger/support/echo"
+	gfiber "go.lumeweb.com/gswagger/support/fiber"
 	"go.lumeweb.com/gswagger/support/gorilla"
 )
 
-func setupMiddlewareTest(t *testing.T) (*Router[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route], *mux.Router) {
+func setupGorillaMiddlewareTest(t *testing.T) (*Router[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route], *mux.Router) {
 	t.Helper()
 
 	muxRouter := mux.NewRouter()
@@ -39,9 +43,332 @@ func setupMiddlewareTest(t *testing.T) (*Router[gorilla.HandlerFunc, mux.Middlew
 	return router, muxRouter
 }
 
-func TestMiddleware(t *testing.T) {
+func TestFiberMiddleware(t *testing.T) {
 	t.Run("root router Use delegates to underlying router", func(t *testing.T) {
-		router, muxRouter := setupMiddlewareTest(t)
+		router, fiberApp := setupFiberMiddlewareTest(t)
+		middlewareCalled := false
+
+		router.Use(func(c *fiber.Ctx) error {
+			middlewareCalled = true
+			return c.Next()
+		})
+
+		router.AddRoute(http.MethodGet, "/test", func(c *fiber.Ctx) error {
+			return c.SendStatus(http.StatusOK)
+		}, Definitions{})
+
+		resp, err := fiberApp.Test(httptest.NewRequest(http.MethodGet, "/test", nil))
+		require.NoError(t, err)
+		defer resp.Body.Close()
+
+		require.True(t, middlewareCalled)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+	})
+
+	t.Run("middleware is called via Router().Use", func(t *testing.T) {
+		router, fiberApp := setupFiberMiddlewareTest(t)
+		middlewareCalled := false
+
+		router.Router().Use(func(c *fiber.Ctx) error {
+			middlewareCalled = true
+			return c.Next()
+		})
+
+		router.AddRoute(http.MethodGet, "/test-router-use", func(c *fiber.Ctx) error {
+			return c.SendStatus(http.StatusOK)
+		}, Definitions{})
+
+		resp, err := fiberApp.Test(httptest.NewRequest(http.MethodGet, "/test-router-use", nil))
+		require.NoError(t, err)
+		defer resp.Body.Close()
+
+		require.True(t, middlewareCalled)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+	})
+
+	t.Run("middleware is called via AddRoute", func(t *testing.T) {
+		router, fiberApp := setupFiberMiddlewareTest(t)
+		mw1Called := false
+		mw2Called := false
+
+		mw1 := func(c *fiber.Ctx) error {
+			mw1Called = true
+			return c.Next()
+		}
+		mw2 := func(c *fiber.Ctx) error {
+			mw2Called = true
+			return c.Next()
+		}
+
+		router.AddRoute(http.MethodGet, "/route-mw", func(c *fiber.Ctx) error {
+			return c.SendStatus(http.StatusOK)
+		}, Definitions{}, mw1, mw2)
+
+		resp, err := fiberApp.Test(httptest.NewRequest(http.MethodGet, "/route-mw", nil))
+		require.NoError(t, err)
+		defer resp.Body.Close()
+
+		require.True(t, mw1Called)
+		require.True(t, mw2Called)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+	})
+
+	t.Run("multiple middleware are called in order", func(t *testing.T) {
+		router, fiberApp := setupFiberMiddlewareTest(t)
+		var callOrder []string
+
+		router.Router().Use(func(c *fiber.Ctx) error {
+			callOrder = append(callOrder, "first")
+			return c.Next()
+		})
+		router.Router().Use(func(c *fiber.Ctx) error {
+			callOrder = append(callOrder, "second")
+			return c.Next()
+		})
+
+		router.AddRoute(http.MethodGet, "/order", func(c *fiber.Ctx) error {
+			return c.SendStatus(http.StatusOK)
+		}, Definitions{})
+
+		resp, err := fiberApp.Test(httptest.NewRequest(http.MethodGet, "/order", nil))
+		require.NoError(t, err)
+		defer resp.Body.Close()
+
+		require.Equal(t, []string{"first", "second"}, callOrder)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+	})
+}
+
+func TestFiberNewRouter(t *testing.T) {
+	fiberApp := fiber.New()
+	fiberRouter := gfiber.NewRouter(fiberApp)
+
+	info := &openapi3.Info{
+		Title:   "my title",
+		Version: "my version",
+	}
+	openapi := &openapi3.T{
+		Info:  info,
+		Paths: &openapi3.Paths{},
+	}
+
+	t.Run("not ok - invalid Openapi option", func(t *testing.T) {
+		r, err := NewRouter(fiberRouter, Options[fiber.Handler, fiber.Handler, gfiber.Route]{})
+
+		require.Nil(t, r)
+		require.EqualError(t, err, fmt.Sprintf("%s: openapi is required", ErrValidatingOAS))
+	})
+
+	t.Run("ok - with default context", func(t *testing.T) {
+		r, err := NewRouter(fiberRouter, Options[fiber.Handler, fiber.Handler, gfiber.Route]{
+			Openapi: openapi,
+		})
+
+		require.NoError(t, err)
+		expected := &Router[fiber.Handler, fiber.Handler, gfiber.Route]{
+			context:               context.Background(),
+			router:                fiberRouter,
+			swaggerSchema:         openapi,
+			jsonDocumentationPath: DefaultJSONDocumentationPath,
+			yamlDocumentationPath: DefaultYAMLDocumentationPath,
+			hostRouters:           make(map[string]*Router[fiber.Handler, fiber.Handler, gfiber.Route]),
+			rootRouter:            nil, // This will be set below
+			defaultRouter:         nil, // This will be set below
+		}
+		expected.rootRouter = expected    // Set root reference to self
+		expected.defaultRouter = expected // Set default router to self
+		require.Equal(t, expected, r)
+	})
+
+	t.Run("ok - with custom context", func(t *testing.T) {
+		type key struct{}
+		ctx := context.WithValue(context.Background(), key{}, "value")
+		r, err := NewRouter(fiberRouter, Options[fiber.Handler, fiber.Handler, gfiber.Route]{
+			Openapi: openapi,
+			Context: ctx,
+		})
+
+		require.NoError(t, err)
+		expected := &Router[fiber.Handler, fiber.Handler, gfiber.Route]{
+			context:               ctx,
+			router:                fiberRouter,
+			swaggerSchema:         openapi,
+			jsonDocumentationPath: DefaultJSONDocumentationPath,
+			yamlDocumentationPath: DefaultYAMLDocumentationPath,
+			hostRouters:           make(map[string]*Router[fiber.Handler, fiber.Handler, gfiber.Route]),
+			rootRouter:            nil, // This will be set below
+			defaultRouter:         nil, // This will be set below
+		}
+		expected.rootRouter = expected    // Set root reference to self
+		expected.defaultRouter = expected // Set default router to self
+		require.Equal(t, expected, r)
+	})
+
+	t.Run("ok - with custom docs paths", func(t *testing.T) {
+		type key struct{}
+		ctx := context.WithValue(context.Background(), key{}, "value")
+		r, err := NewRouter(fiberRouter, Options[fiber.Handler, fiber.Handler, gfiber.Route]{
+			Openapi:               openapi,
+			Context:               ctx,
+			JSONDocumentationPath: "/json/path",
+			YAMLDocumentationPath: "/yaml/path",
+		})
+
+		require.NoError(t, err)
+		expected := &Router[fiber.Handler, fiber.Handler, gfiber.Route]{
+			context:               ctx,
+			router:                fiberRouter,
+			swaggerSchema:         openapi,
+			jsonDocumentationPath: "/json/path",
+			yamlDocumentationPath: "/yaml/path",
+			hostRouters:           make(map[string]*Router[fiber.Handler, fiber.Handler, gfiber.Route]),
+			rootRouter:            nil, // This will be set below
+			defaultRouter:         nil, // This will be set below
+		}
+		expected.rootRouter = expected    // Set root reference to self
+		expected.defaultRouter = expected // Set default router to self
+		require.Equal(t, expected, r)
+	})
+
+	t.Run("ko - json documentation path does not start with /", func(t *testing.T) {
+		type key struct{}
+		ctx := context.WithValue(context.Background(), key{}, "value")
+		r, err := NewRouter(fiberRouter, Options[fiber.Handler, fiber.Handler, gfiber.Route]{
+			Openapi:               openapi,
+			Context:               ctx,
+			JSONDocumentationPath: "json/path",
+			YAMLDocumentationPath: "/yaml/path",
+		})
+
+		require.EqualError(t, err, "invalid path json/path. Path should start with '/'")
+		require.Nil(t, r)
+	})
+
+	t.Run("ko - yaml documentation path does not start with /", func(t *testing.T) {
+		type key struct{}
+		ctx := context.WithValue(context.Background(), key{}, "value")
+		r, err := NewRouter(fiberRouter, Options[fiber.Handler, fiber.Handler, gfiber.Route]{
+			Openapi:               openapi,
+			Context:               ctx,
+			JSONDocumentationPath: "/json/path",
+			YAMLDocumentationPath: "yaml/path",
+		})
+
+		require.EqualError(t, err, "invalid path yaml/path. Path should start with '/'")
+		require.Nil(t, r)
+	})
+}
+
+func TestFiberGenerateAndExposeSwagger(t *testing.T) {
+	t.Run("correctly expose json documentation from loaded openapi file", func(t *testing.T) {
+		fiberApp := fiber.New()
+		router, err := NewRouter(gfiber.NewRouter(fiberApp), Options[fiber.Handler, fiber.Handler, gfiber.Route]{
+			Openapi: &openapi3.T{
+				Info: &openapi3.Info{
+					Title:   "test openapi title",
+					Version: "test openapi version",
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		err = router.GenerateAndExposeOpenapi()
+		require.NoError(t, err)
+
+		resp, err := fiberApp.Test(httptest.NewRequest(http.MethodGet, DefaultJSONDocumentationPath, nil))
+		require.NoError(t, err)
+		defer resp.Body.Close()
+
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		require.True(t, strings.Contains(resp.Header.Get("content-type"), "application/json"))
+	})
+}
+
+func setupFiberHostRouterTest(t *testing.T) (*fiber.App, *Router[fiber.Handler, fiber.Handler, gfiber.Route]) {
+	t.Helper()
+
+	info := &openapi3.Info{
+		Title:   "Host Routing Test",
+		Version: "1.0",
+	}
+	openapi := &openapi3.T{
+		Info:  info,
+		Paths: &openapi3.Paths{},
+	}
+
+	fiberApp := fiber.New()
+	fiberRouter := gfiber.NewRouter(fiberApp)
+
+	router, err := NewRouter(fiberRouter, Options[fiber.Handler, fiber.Handler, gfiber.Route]{
+		Openapi: openapi,
+		FrameworkRouterFactory: func() apirouter.Router[fiber.Handler, fiber.Handler, gfiber.Route] {
+			return gfiber.NewRouter(fiber.New())
+		},
+	})
+	require.NoError(t, err)
+
+	return fiberApp, router
+}
+
+func TestFiberHostRouting(t *testing.T) {
+	t.Run("create host router", func(t *testing.T) {
+		_, router := setupFiberHostRouterTest(t)
+
+		hostRouter, err := router.Host("api.example.com")
+		require.NoError(t, err)
+		_, err = router.Host("api.example.com") // Test getting existing host
+		require.NoError(t, err)
+		require.Equal(t, "api.example.com", hostRouter.host)
+	})
+}
+
+func setupFiberMiddlewareTest(t *testing.T) (*Router[fiber.Handler, fiber.Handler, gfiber.Route], *fiber.App) {
+	t.Helper()
+
+	fiberApp := fiber.New()
+	fiberRouter := gfiber.NewRouter(fiberApp)
+
+	openapi := &openapi3.T{
+		Info: &openapi3.Info{
+			Title:   "middleware test",
+			Version: "1.0",
+		},
+		Paths: &openapi3.Paths{},
+	}
+
+	router, err := NewRouter(fiberRouter, Options[fiber.Handler, fiber.Handler, gfiber.Route]{
+		Openapi: openapi,
+	})
+	require.NoError(t, err)
+
+	return router, fiberApp
+}
+
+func setupEchoMiddlewareTest(t *testing.T) (*Router[echo.HandlerFunc, echo.MiddlewareFunc, gecho.Route], *echo.Echo) {
+	t.Helper()
+
+	echoRouter := echo.New()
+	echoAPIRouter := gecho.NewRouter(echoRouter)
+
+	openapi := &openapi3.T{
+		Info: &openapi3.Info{
+			Title:   "middleware test",
+			Version: "1.0",
+		},
+		Paths: &openapi3.Paths{},
+	}
+
+	router, err := NewRouter(echoAPIRouter, Options[echo.HandlerFunc, echo.MiddlewareFunc, gecho.Route]{
+		Openapi: openapi,
+	})
+	require.NoError(t, err)
+
+	return router, echoRouter
+}
+
+func TestGorillaMiddleware(t *testing.T) {
+	t.Run("root router Use delegates to underlying router", func(t *testing.T) {
+		router, muxRouter := setupGorillaMiddlewareTest(t)
 		middlewareCalled := false
 
 		router.Use(func(next http.Handler) http.Handler {
@@ -64,7 +391,7 @@ func TestMiddleware(t *testing.T) {
 	})
 
 	t.Run("middleware is called via Router().Use", func(t *testing.T) {
-		router, muxRouter := setupMiddlewareTest(t)
+		router, muxRouter := setupGorillaMiddlewareTest(t)
 		middlewareCalled := false
 
 		router.Router().Use(func(next http.Handler) http.Handler {
@@ -87,7 +414,7 @@ func TestMiddleware(t *testing.T) {
 	})
 
 	t.Run("middleware is called via AddRoute", func(t *testing.T) {
-		router, muxRouter := setupMiddlewareTest(t)
+		router, muxRouter := setupGorillaMiddlewareTest(t)
 		mw1Called := false
 		mw2Called := false
 
@@ -118,7 +445,7 @@ func TestMiddleware(t *testing.T) {
 	})
 
 	t.Run("multiple middleware are called in order", func(t *testing.T) {
-		router, muxRouter := setupMiddlewareTest(t)
+		router, muxRouter := setupGorillaMiddlewareTest(t)
 		var callOrder []string
 
 		router.Router().Use(func(next http.Handler) http.Handler {
@@ -147,7 +474,7 @@ func TestMiddleware(t *testing.T) {
 	})
 }
 
-func TestNewRouter(t *testing.T) {
+func TestGorillaNewRouter(t *testing.T) {
 	muxRouter := mux.NewRouter()
 	mAPIRouter := gorilla.NewRouter(muxRouter)
 
@@ -267,7 +594,7 @@ func TestNewRouter(t *testing.T) {
 	})
 }
 
-func TestGenerateValidSwagger(t *testing.T) {
+func TestGorillaGenerateValidSwagger(t *testing.T) {
 	t.Run("not ok - empty openapi info", func(t *testing.T) {
 		openapi := &openapi3.T{}
 
@@ -333,7 +660,7 @@ func TestGenerateValidSwagger(t *testing.T) {
 	})
 }
 
-func TestGenerateAndExposeSwagger(t *testing.T) {
+func TestGorillaGenerateAndExposeSwagger(t *testing.T) {
 	t.Run("fails openapi validation", func(t *testing.T) {
 		mRouter := mux.NewRouter()
 		router, err := NewRouter(gorilla.NewRouter(mRouter), Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
@@ -666,6 +993,218 @@ func TestGetRouter(t *testing.T) {
 	})
 }
 
+func TestEchoMiddleware(t *testing.T) {
+	t.Run("root router Use delegates to underlying router", func(t *testing.T) {
+		router, echoRouter := setupEchoMiddlewareTest(t)
+		middlewareCalled := false
+
+		router.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+			return func(c echo.Context) error {
+				middlewareCalled = true
+				return next(c)
+			}
+		})
+
+		router.AddRoute(http.MethodGet, "/test", func(c echo.Context) error {
+			return c.String(http.StatusOK, "")
+		}, Definitions{})
+
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, "/test", nil)
+		echoRouter.ServeHTTP(w, r)
+
+		require.True(t, middlewareCalled)
+		require.Equal(t, http.StatusOK, w.Result().StatusCode)
+	})
+
+	t.Run("middleware is called via Router().Use", func(t *testing.T) {
+		router, echoRouter := setupEchoMiddlewareTest(t)
+		middlewareCalled := false
+
+		router.Router().Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+			return func(c echo.Context) error {
+				middlewareCalled = true
+				return next(c)
+			}
+		})
+
+		router.AddRoute(http.MethodGet, "/test-router-use", func(c echo.Context) error {
+			return c.String(http.StatusOK, "")
+		}, Definitions{})
+
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, "/test-router-use", nil)
+		echoRouter.ServeHTTP(w, r)
+
+		require.True(t, middlewareCalled)
+		require.Equal(t, http.StatusOK, w.Result().StatusCode)
+	})
+
+	t.Run("middleware is called via AddRoute", func(t *testing.T) {
+		router, echoRouter := setupEchoMiddlewareTest(t)
+		mw1Called := false
+		mw2Called := false
+
+		mw1 := func(next echo.HandlerFunc) echo.HandlerFunc {
+			return func(c echo.Context) error {
+				mw1Called = true
+				return next(c)
+			}
+		}
+		mw2 := func(next echo.HandlerFunc) echo.HandlerFunc {
+			return func(c echo.Context) error {
+				mw2Called = true
+				return next(c)
+			}
+		}
+
+		router.AddRoute(http.MethodGet, "/route-mw", func(c echo.Context) error {
+			return c.String(http.StatusOK, "")
+		}, Definitions{}, mw1, mw2)
+
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, "/route-mw", nil)
+		echoRouter.ServeHTTP(w, r)
+
+		require.True(t, mw1Called)
+		require.True(t, mw2Called)
+		require.Equal(t, http.StatusOK, w.Result().StatusCode)
+	})
+
+	t.Run("multiple middleware are called in order", func(t *testing.T) {
+		router, echoRouter := setupEchoMiddlewareTest(t)
+		var callOrder []string
+
+		router.Router().Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+			return func(c echo.Context) error {
+				callOrder = append(callOrder, "first")
+				return next(c)
+			}
+		})
+		router.Router().Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+			return func(c echo.Context) error {
+				callOrder = append(callOrder, "second")
+				return next(c)
+			}
+		})
+
+		router.AddRoute(http.MethodGet, "/order", func(c echo.Context) error {
+			return c.String(http.StatusOK, "")
+		}, Definitions{})
+
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, "/order", nil)
+		echoRouter.ServeHTTP(w, r)
+
+		require.Equal(t, []string{"first", "second"}, callOrder)
+		require.Equal(t, http.StatusOK, w.Result().StatusCode)
+	})
+}
+
+func TestEchoNewRouter(t *testing.T) {
+	echoRouter := echo.New()
+	echoAPIRouter := gecho.NewRouter(echoRouter)
+
+	info := &openapi3.Info{
+		Title:   "my title",
+		Version: "my version",
+	}
+	openapi := &openapi3.T{
+		Info:  info,
+		Paths: &openapi3.Paths{},
+	}
+
+	t.Run("not ok - invalid Openapi option", func(t *testing.T) {
+		r, err := NewRouter(echoAPIRouter, Options[echo.HandlerFunc, echo.MiddlewareFunc, gecho.Route]{})
+
+		require.Nil(t, r)
+		require.EqualError(t, err, fmt.Sprintf("%s: openapi is required", ErrValidatingOAS))
+	})
+
+	t.Run("ok - with default context", func(t *testing.T) {
+		r, err := NewRouter(echoAPIRouter, Options[echo.HandlerFunc, echo.MiddlewareFunc, gecho.Route]{
+			Openapi: openapi,
+		})
+
+		require.NoError(t, err)
+		expected := &Router[echo.HandlerFunc, echo.MiddlewareFunc, gecho.Route]{
+			context:               context.Background(),
+			router:                echoAPIRouter,
+			swaggerSchema:         openapi,
+			jsonDocumentationPath: DefaultJSONDocumentationPath,
+			yamlDocumentationPath: DefaultYAMLDocumentationPath,
+			hostRouters:           make(map[string]*Router[echo.HandlerFunc, echo.MiddlewareFunc, gecho.Route]),
+			rootRouter:            nil, // This will be set below
+			defaultRouter:         nil, // This will be set below
+		}
+		expected.rootRouter = expected    // Set root reference to self
+		expected.defaultRouter = expected // Set default router to self
+		require.Equal(t, expected, r)
+	})
+}
+
+func TestEchoGenerateAndExposeSwagger(t *testing.T) {
+	t.Run("correctly expose json documentation from loaded openapi file", func(t *testing.T) {
+		echoRouter := echo.New()
+		router, err := NewRouter(gecho.NewRouter(echoRouter), Options[echo.HandlerFunc, echo.MiddlewareFunc, gecho.Route]{
+			Openapi: &openapi3.T{
+				Info: &openapi3.Info{
+					Title:   "test openapi title",
+					Version: "test openapi version",
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		err = router.GenerateAndExposeOpenapi()
+		require.NoError(t, err)
+
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, DefaultJSONDocumentationPath, nil)
+		echoRouter.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Result().StatusCode)
+		require.True(t, strings.Contains(w.Result().Header.Get("content-type"), "application/json"))
+	})
+}
+
+func setupEchoHostRouterTest(t *testing.T) (*echo.Echo, *Router[echo.HandlerFunc, echo.MiddlewareFunc, gecho.Route]) {
+	t.Helper()
+
+	info := &openapi3.Info{
+		Title:   "Host Routing Test",
+		Version: "1.0",
+	}
+	openapi := &openapi3.T{
+		Info:  info,
+		Paths: &openapi3.Paths{},
+	}
+
+	echoRouter := echo.New()
+
+	router, err := NewRouter(gecho.NewRouter(echoRouter), Options[echo.HandlerFunc, echo.MiddlewareFunc, gecho.Route]{
+		Openapi: openapi,
+		FrameworkRouterFactory: func() apirouter.Router[echo.HandlerFunc, echo.MiddlewareFunc, gecho.Route] {
+			return gecho.NewRouter(echo.New())
+		},
+	})
+	require.NoError(t, err)
+
+	return echoRouter, router
+}
+
+func TestEchoHostRouting(t *testing.T) {
+	t.Run("create host router", func(t *testing.T) {
+		_, router := setupEchoHostRouterTest(t)
+
+		hostRouter, err := router.Host("api.example.com")
+		require.NoError(t, err)
+		_, err = router.Host("api.example.com") // Test getting existing host
+		require.NoError(t, err)
+		require.Equal(t, "api.example.com", hostRouter.host)
+	})
+}
+
 func readBody(t *testing.T, requestBody io.ReadCloser) string {
 	t.Helper()
 
@@ -675,7 +1214,7 @@ func readBody(t *testing.T, requestBody io.ReadCloser) string {
 	return string(body)
 }
 
-func setupHostRouterTest(t *testing.T) (*mux.Router, *Router[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]) {
+func setupGorillaHostRouterTest(t *testing.T) (*mux.Router, *Router[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]) {
 	t.Helper()
 
 	info := &openapi3.Info{
@@ -701,9 +1240,9 @@ func setupHostRouterTest(t *testing.T) (*mux.Router, *Router[gorilla.HandlerFunc
 	return muxRouter, router
 }
 
-func TestHostRouting(t *testing.T) {
+func TestGorillaHostRouting(t *testing.T) {
 	t.Run("generate docs on host router", func(t *testing.T) {
-		_, router := setupHostRouterTest(t)
+		_, router := setupGorillaHostRouterTest(t)
 
 		hostRouter, err := router.Host("api.example.com")
 		require.NoError(t, err)
@@ -726,7 +1265,7 @@ func TestHostRouting(t *testing.T) {
 	})
 
 	t.Run("create host router", func(t *testing.T) {
-		_, router := setupHostRouterTest(t)
+		_, router := setupGorillaHostRouterTest(t)
 
 		hostRouter, err := router.Host("api.example.com")
 		require.NoError(t, err)
@@ -736,7 +1275,7 @@ func TestHostRouting(t *testing.T) {
 	})
 
 	t.Run("host router isolation", func(t *testing.T) {
-		_, router := setupHostRouterTest(t)
+		_, router := setupGorillaHostRouterTest(t)
 
 		_, err := router.AddRoute(http.MethodGet, "/default", func(w http.ResponseWriter, req *http.Request) {
 			w.WriteHeader(http.StatusOK)
@@ -756,7 +1295,7 @@ func TestHostRouting(t *testing.T) {
 	})
 
 	t.Run("host-based request routing", func(t *testing.T) {
-		_, router := setupHostRouterTest(t)
+		_, router := setupGorillaHostRouterTest(t)
 
 		_, err := router.AddRoute(http.MethodGet, "/default", func(w http.ResponseWriter, req *http.Request) {
 			w.WriteHeader(http.StatusOK)
@@ -784,7 +1323,7 @@ func TestHostRouting(t *testing.T) {
 	})
 
 	t.Run("host-specific documentation", func(t *testing.T) {
-		_, router := setupHostRouterTest(t)
+		_, router := setupGorillaHostRouterTest(t)
 
 		_, err := router.Host("api.example.com")
 		require.NoError(t, err)
@@ -800,7 +1339,7 @@ func TestHostRouting(t *testing.T) {
 	})
 
 	t.Run("host router error cases", func(t *testing.T) {
-		_, router := setupHostRouterTest(t)
+		_, router := setupGorillaHostRouterTest(t)
 
 		// Create a group router
 		groupRouter, err := router.Group("/api")
@@ -842,7 +1381,7 @@ func TestHostRouting(t *testing.T) {
 	})
 
 	t.Run("host router middleware", func(t *testing.T) {
-		_, router := setupHostRouterTest(t)
+		_, router := setupGorillaHostRouterTest(t)
 
 		hostRouter, err := router.Host("api.example.com")
 		require.NoError(t, err)

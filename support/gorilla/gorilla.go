@@ -1,11 +1,9 @@
 package gorilla
 
 import (
+	"github.com/gorilla/mux"
 	"go.lumeweb.com/gswagger/apirouter"
 	"net/http"
-	"strings"
-
-	"github.com/gorilla/mux"
 )
 
 // HandlerFunc is the http type handler used by gorilla/mux
@@ -16,8 +14,7 @@ var _ apirouter.Router[HandlerFunc, mux.MiddlewareFunc, Route] = (*gorillaRouter
 
 func NewRouter(router *mux.Router) apirouter.Router[HandlerFunc, mux.MiddlewareFunc, Route] {
 	return gorillaRouter{
-		router:  router,
-		inGroup: false,
+		router: router,
 	}
 }
 
@@ -26,14 +23,11 @@ func (r gorillaRouter) Use(middleware ...mux.MiddlewareFunc) {
 }
 
 type gorillaRouter struct {
-	router     *mux.Router // Can be main router or subrouter
-	pathPrefix string
-	inGroup    bool // Flag to prevent infinite recursion
+	router *mux.Router // Can be main router or subrouter
 }
 
 func (r gorillaRouter) AddRoute(method string, path string, handler HandlerFunc, middleware ...mux.MiddlewareFunc) Route {
-	// Use group API consistently for middleware handling
-	if len(middleware) > 0 && !r.inGroup {
+	if len(middleware) > 0 {
 		group := r.Group("")
 		group.Use(middleware...)
 		return group.AddRoute(method, path, handler)
@@ -58,22 +52,10 @@ func (r gorillaRouter) Router() any {
 }
 
 func (r gorillaRouter) Group(pathPrefix string) apirouter.Router[HandlerFunc, mux.MiddlewareFunc, Route] {
-	// Ensure path prefix starts with / and doesn't end with /
-	cleanPrefix := strings.TrimPrefix(pathPrefix, "/")
-	cleanPrefix = strings.TrimSuffix(cleanPrefix, "/")
-
-	fullPrefix := "/" + cleanPrefix
-	if r.pathPrefix != "" {
-		fullPrefix = r.pathPrefix + fullPrefix
-	}
-
-	// Create the subrouter using NewRoute().PathPrefix()
-	muxSubrouter := r.router.NewRoute().PathPrefix(fullPrefix).Subrouter()
-	muxSubrouter.StrictSlash(true)
+	// Create subrouter from current router
+	subrouter := r.router.PathPrefix(pathPrefix).Subrouter()
 	return gorillaRouter{
-		router:     muxSubrouter,
-		pathPrefix: fullPrefix,
-		inGroup:    true, // Mark as being in a group
+		router: subrouter,
 	}
 }
 

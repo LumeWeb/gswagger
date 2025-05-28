@@ -2,6 +2,8 @@ package echo
 
 import (
 	"go.lumeweb.com/gswagger/apirouter"
+	"path"
+	"strings"
 
 	"net/http"
 
@@ -13,15 +15,20 @@ type Route = *echo.Route
 var _ apirouter.Router[echo.HandlerFunc, echo.MiddlewareFunc, Route] = (*echoRouter)(nil)
 
 type echoRouter struct {
-	router *echo.Echo
-	group  *echo.Group
+	router     *echo.Echo
+	group      *echo.Group
+	pathPrefix string
 }
 
-func (r echoRouter) AddRoute(method string, path string, handler echo.HandlerFunc, middleware ...echo.MiddlewareFunc) Route {
-	if len(middleware) > 0 {
-		return r.router.Add(method, path, handler, middleware...)
+func (r echoRouter) AddRoute(method string, _path string, handler echo.HandlerFunc, middleware ...echo.MiddlewareFunc) Route {
+	fullPath := _path
+	if r.pathPrefix != "" {
+		fullPath = path.Join(r.pathPrefix, _path)
 	}
-	return r.router.Add(method, path, handler)
+	if len(middleware) > 0 {
+		return r.router.Add(method, fullPath, handler, middleware...)
+	}
+	return r.router.Add(method, fullPath, handler)
 }
 
 func (r echoRouter) SwaggerHandler(contentType string, blob []byte) echo.HandlerFunc {
@@ -49,10 +56,20 @@ func NewRouter(router *echo.Echo) apirouter.Router[echo.HandlerFunc, echo.Middle
 }
 
 func (r echoRouter) Group(pathPrefix string) apirouter.Router[echo.HandlerFunc, echo.MiddlewareFunc, Route] {
-	echoGroup := r.router.Group(pathPrefix)
+	cleanPrefix := strings.TrimPrefix(pathPrefix, "/")
+	cleanPrefix = strings.TrimSuffix(cleanPrefix, "/")
+
+	var newGroup *echo.Group
+	if r.group != nil {
+		newGroup = r.group.Group("/" + cleanPrefix)
+	} else {
+		newGroup = r.router.Group("/" + cleanPrefix)
+	}
+
 	return echoRouter{
-		router: r.router,
-		group:  echoGroup,
+		router:     r.router,
+		group:      newGroup,
+		pathPrefix: path.Join(r.pathPrefix, "/"+cleanPrefix),
 	}
 }
 
