@@ -32,6 +32,7 @@ var (
 //   - handler: Request handler function
 //   - operation: Predefined OpenAPI Operation
 //   - middleware: Optional middleware chain
+//
 // Returns:
 //   - Route: Framework-specific route object
 //   - error: Validation error if operation is invalid
@@ -48,9 +49,15 @@ func (r Router[HandlerFunc, MiddlewareFunc, Route]) AddRawRoute(method string, r
 			op.Responses = openapi3.NewResponses()
 		}
 	}
+
 	pathWithPrefix := path.Join(r.pathPrefix, routePath)
 	oasPath := r.router.TransformPathToOasPath(pathWithPrefix)
 	r.swaggerSchema.AddOperation(oasPath, method, op)
+
+	pathWithPrefix = routePath
+	if !r.isSubrouter {
+		pathWithPrefix = path.Join(r.pathPrefix, routePath)
+	}
 
 	return r.router.AddRoute(method, pathWithPrefix, handler, middleware...), nil
 }
@@ -62,15 +69,15 @@ type Content map[string]Schema
 // Schema defines the structure of request/response data
 type Schema struct {
 	Value                     interface{} // Go type to generate schema from
-	AllowAdditionalProperties bool       // Whether to allow extra fields
+	AllowAdditionalProperties bool        // Whether to allow extra fields
 }
 
 // Parameter defines an API parameter (path, query, header, cookie)
 type Parameter struct {
-	Content     Content      // Media type schemas (alternative to Schema)
-	Schema      *Schema      // Parameter schema definition
-	Description string       // Human-readable description
-	Required    bool         // Whether parameter is required
+	Content     Content // Media type schemas (alternative to Schema)
+	Schema      *Schema // Parameter schema definition
+	Description string  // Human-readable description
+	Required    bool    // Whether parameter is required
 }
 
 // ParameterValue maps parameter names to their definitions
@@ -78,19 +85,19 @@ type ParameterValue map[string]Parameter
 
 // ParameterDefinition defines a reusable parameter component
 type ParameterDefinition struct {
-	In          string       // Location (path, query, header, cookie)
-	Required    bool         // Whether parameter is required
-	Description string       // Human-readable description
-	Content     Content      // Media type schemas (alternative to Schema)
-	Schema      *Schema      // Parameter schema definition
+	In          string  // Location (path, query, header, cookie)
+	Required    bool    // Whether parameter is required
+	Description string  // Human-readable description
+	Content     Content // Media type schemas (alternative to Schema)
+	Schema      *Schema // Parameter schema definition
 }
 
 // ContentValue defines request/response body content
 type ContentValue struct {
-	Content     Content            // Media type schemas
-	Description string             // Human-readable description
-	Headers     map[string]string  // Response headers
-	Required    bool               // Whether body is required
+	Content     Content           // Media type schemas
+	Description string            // Human-readable description
+	Headers     map[string]string // Response headers
+	Required    bool              // Whether body is required
 }
 
 // SecurityRequirements lists required security schemes
@@ -101,19 +108,19 @@ type SecurityRequirement map[string][]string
 
 // Definitions provides OpenAPI schema definitions for a route
 type Definitions struct {
-	Extensions   map[string]interface{} // OpenAPI extensions
-	Tags         []string              // Logical grouping tags
-	Summary      string                // Short summary
-	Description  string                // Detailed description
-	Deprecated   bool                  // Whether endpoint is deprecated
-	Parameters   map[string]ParameterDefinition // Reusable parameters
-	PathParams   ParameterValue        // Path parameters
-	Querystring  ParameterValue        // Query parameters
-	Headers      ParameterValue        // Header parameters
-	Cookies      ParameterValue        // Cookie parameters
-	RequestBody  *ContentValue         // Request body definition
-	Responses    map[int]ContentValue  // Response definitions by status code
-	Security     SecurityRequirements  // Security requirements
+	Extensions  map[string]interface{}         // OpenAPI extensions
+	Tags        []string                       // Logical grouping tags
+	Summary     string                         // Short summary
+	Description string                         // Detailed description
+	Deprecated  bool                           // Whether endpoint is deprecated
+	Parameters  map[string]ParameterDefinition // Reusable parameters
+	PathParams  ParameterValue                 // Path parameters
+	Querystring ParameterValue                 // Query parameters
+	Headers     ParameterValue                 // Header parameters
+	Cookies     ParameterValue                 // Cookie parameters
+	RequestBody *ContentValue                  // Request body definition
+	Responses   map[int]ContentValue           // Response definitions by status code
+	Security    SecurityRequirements           // Security requirements
 }
 
 // newOperationFromDefinition converts Definitions to an OpenAPI Operation
@@ -138,11 +145,11 @@ func newOperationFromDefinition(schema Definitions) Operation {
 
 // Constants for OpenAPI parameter locations and content types
 const (
-	pathParamsType  = "path"  // Path parameter location
-	queryParamType  = "query" // Query parameter location
-	headerParamType = "header" // Header parameter location
-	cookieParamType = "cookie" // Cookie parameter location
-	jsonType        = "application/json" // JSON content type
+	pathParamsType  = "path"                // Path parameter location
+	queryParamType  = "query"               // Query parameter location
+	headerParamType = "header"              // Header parameter location
+	cookieParamType = "cookie"              // Cookie parameter location
+	jsonType        = "application/json"    // JSON content type
 	formDataType    = "multipart/form-data" // Form data content type
 )
 
@@ -160,6 +167,7 @@ const (
 //   - handler: Request handler function
 //   - schema: OpenAPI definitions for the route
 //   - middleware: Optional middleware chain
+//
 // Returns:
 //   - Route: Framework-specific route object
 //   - error: Validation error if schema is invalid

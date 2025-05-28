@@ -1,8 +1,6 @@
 package fiber
 
 import (
-	"strings"
-
 	"github.com/gofiber/fiber/v2"
 	"go.lumeweb.com/gswagger/apirouter"
 )
@@ -13,8 +11,7 @@ type Route = fiber.Router
 var _ apirouter.Router[HandlerFunc, HandlerFunc, Route] = (*fiberRouter)(nil)
 
 type fiberRouter struct {
-	router     fiber.Router // Can be *fiber.App or fiber.Router (from Group)
-	pathPrefix string
+	router fiber.Router // Can be *fiber.App or fiber.Router (from Group)
 }
 
 func (r fiberRouter) Router() any {
@@ -28,14 +25,9 @@ func NewRouter(router fiber.Router) apirouter.Router[HandlerFunc, HandlerFunc, R
 }
 
 func (r fiberRouter) Group(pathPrefix string) apirouter.Router[HandlerFunc, HandlerFunc, Route] {
-	// Ensure path prefix starts with / and doesn't end with /
-	cleanPrefix := strings.TrimPrefix(pathPrefix, "/")
-	cleanPrefix = strings.TrimSuffix(cleanPrefix, "/")
-
-	fiberGroup := r.router.Group("/" + cleanPrefix)
+	fiberGroup := r.router.Group(pathPrefix)
 	return fiberRouter{
-		router:     fiberGroup,
-		pathPrefix: "/" + cleanPrefix,
+		router: fiberGroup,
 	}
 }
 
@@ -73,11 +65,6 @@ func (r fiberRouter) Use(middleware ...HandlerFunc) {
 }
 
 func (r fiberRouter) TransformPathToOasPath(path string) string {
-	// If this is a subrouter, the path is relative to the prefix.
-	// We need to prepend the prefix for the OpenAPI path.
-	if r.pathPrefix != "" {
-		return apirouter.TransformPathParamsWithColon(r.pathPrefix + path)
-	}
 	return apirouter.TransformPathParamsWithColon(path)
 }
 

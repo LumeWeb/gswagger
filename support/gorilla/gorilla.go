@@ -52,7 +52,6 @@ func (r gorillaRouter) Router() any {
 }
 
 func (r gorillaRouter) Group(pathPrefix string) apirouter.Router[HandlerFunc, mux.MiddlewareFunc, Route] {
-	// Create subrouter from current router
 	subrouter := r.router.PathPrefix(pathPrefix).Subrouter()
 	return gorillaRouter{
 		router: subrouter,
