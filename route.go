@@ -1,6 +1,7 @@
 package swagger
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path"
@@ -36,14 +37,9 @@ var (
 // Returns:
 //   - Route: Framework-specific route object
 //   - error: Validation error if operation is invalid
-func (r Router[HandlerFunc, MiddlewareFunc, Route]) AddRawRoute(method string, routePath string, handler HandlerFunc, operation Operation, middleware ...MiddlewareFunc) (Route, error) {
+func (r *Router[HandlerFunc, MiddlewareFunc, Route]) AddRawRoute(method string, routePath string, handler HandlerFunc, operation Operation, middleware ...MiddlewareFunc) (Route, error) {
 	op := operation.Operation
-	if op != nil {
-		err := operation.Validate(r.context)
-		if err != nil {
-			return getZero[Route](), err
-		}
-	} else {
+	if op == nil {
 		op = openapi3.NewOperation()
 		if op.Responses == nil {
 			op.Responses = openapi3.NewResponses()
@@ -171,12 +167,91 @@ const (
 // Returns:
 //   - Route: Framework-specific route object
 //   - error: Validation error if schema is invalid
-func (r Router[HandlerFunc, MiddlewareFunc, Route]) AddRoute(method string, path string, handler HandlerFunc, schema Definitions, middleware ...MiddlewareFunc) (Route, error) {
+func (r *Router[HandlerFunc, MiddlewareFunc, Route]) AddRoute(method string, path string, handler HandlerFunc, schema Definitions, middleware ...MiddlewareFunc) (Route, error) {
 	operation := newOperationFromDefinition(schema)
 
-	var pathParams, otherParams []*openapi3.Parameter
+	// Collect all parameters from different sources
+	allParams := make(map[string]ParameterDefinition)
 
+	// Add parameters from Definitions.Parameters (highest priority)
 	for name, paramDef := range schema.Parameters {
+		allParams[name] = paramDef
+	}
+
+	oasPath := r.router.TransformPathToOasPath(path)
+
+	// Add parameters from PathParams (if not already in Definitions.Parameters)
+	pathParams := getPathParamsAutoComplete(schema, oasPath)
+	for name, param := range pathParams {
+		if _, exists := allParams[name]; !exists {
+			allParams[name] = ParameterDefinition{
+				In:          pathParamsType,
+				Required:    true, // Path parameters are always required
+				Description: param.Description,
+				Content:     param.Content,
+				Schema:      param.Schema,
+			}
+		}
+	}
+
+	// Add parameters from Querystring (if not already in Definitions.Parameters)
+	for name, param := range schema.Querystring {
+		if _, exists := allParams[name]; !exists {
+			allParams[name] = ParameterDefinition{
+				In:          queryParamType,
+				Required:    param.Required, // Use Required from ParameterValue
+				Description: param.Description,
+				Content:     param.Content,
+				Schema:      param.Schema,
+			}
+		}
+	}
+
+	// Add parameters from Headers (if not already in Definitions.Parameters)
+	for name, param := range schema.Headers {
+		if _, exists := allParams[name]; !exists {
+			allParams[name] = ParameterDefinition{
+				In:          headerParamType,
+				Required:    param.Required, // Use Required from ParameterValue
+				Description: param.Description,
+				Content:     param.Content,
+				Schema:      param.Schema,
+			}
+		}
+	}
+
+	// Add parameters from Cookies (if not already in Definitions.Parameters)
+	for name, param := range schema.Cookies {
+		if _, exists := allParams[name]; !exists {
+			allParams[name] = ParameterDefinition{
+				In:          cookieParamType,
+				Required:    param.Required, // Use Required from ParameterValue
+				Description: param.Description,
+				Content:     param.Content,
+				Schema:      param.Schema,
+			}
+		}
+	}
+
+	// Convert map to slice for sorting
+	var sortedParamNames []string
+	for name := range allParams {
+		sortedParamNames = append(sortedParamNames, name)
+	}
+	// Sort parameters first by location, then by name for consistent order
+	sort.SliceStable(sortedParamNames, func(i, j int) bool {
+		paramI := allParams[sortedParamNames[i]]
+		paramJ := allParams[sortedParamNames[j]]
+		if paramI.In != paramJ.In {
+			// Define a consistent order for 'in' values
+			return paramLocationOrder[paramI.In] < paramLocationOrder[paramJ.In]
+		}
+		return sortedParamNames[i] < sortedParamNames[j]
+	})
+
+	// Add sorted parameters to the operation
+	for _, name := range sortedParamNames {
+		paramDef := allParams[name]
 		param := &openapi3.Parameter{
 			In:          paramDef.In,
 			Name:        name,
@@ -187,118 +262,22 @@ func (r Router[HandlerFunc, MiddlewareFunc, Route]) AddRoute(method string, path
 		if paramDef.Content != nil {
 			content, err := r.addContentToOASSchema(paramDef.Content)
 			if err != nil {
+				// Log or handle the error appropriately, but don't fail AddRoute for a single parameter
 				continue
 			}
 			param.Content = content
 		} else if paramDef.Schema != nil {
 			schema, err := r.getSchemaFromInterface(paramDef.Schema.Value, paramDef.Schema.AllowAdditionalProperties)
 			if err != nil {
+				// Log or handle the error appropriately
 				continue
 			}
-			param.Schema = &openapi3.SchemaRef{Value: schema}
+			param.Schema = schema
 		}
-
-		if paramDef.In == pathParamsType {
-			pathParams = append(pathParams, param)
-		} else {
-			otherParams = append(otherParams, param)
-		}
-	}
-
-	for _, param := range pathParams {
-		operation.AddParameter(param)
-	}
-	for _, param := range otherParams {
 		operation.AddParameter(param)
 	}
 
-	addParameterIfNotExists := func(paramType string, paramConfig ParameterValue) error {
-		var keys = make([]string, 0, len(paramConfig))
-		for k := range paramConfig {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-
-		for _, key := range keys {
-			exists := false
-			if operation.Parameters != nil {
-				for _, existingParamRef := range operation.Parameters {
-					if existingParamRef != nil && existingParamRef.Value != nil {
-						if existingParamRef.Value.Name == key && existingParamRef.Value.In == paramType {
-							exists = true
-							break
-						}
-					}
-				}
-			}
-
-			if !exists {
-				v := paramConfig[key]
-				var param *openapi3.Parameter
-				switch paramType {
-				case pathParamsType:
-					param = openapi3.NewPathParameter(key)
-					param.Required = true
-				case queryParamType:
-					param = openapi3.NewQueryParameter(key)
-				case headerParamType:
-					param = openapi3.NewHeaderParameter(key)
-				case cookieParamType:
-					param = openapi3.NewCookieParameter(key)
-				default:
-					return fmt.Errorf("invalid param type")
-				}
-
-				if v.Description != "" {
-					param.Description = v.Description
-				}
-
-				if v.Content != nil {
-					content, err := r.addContentToOASSchema(v.Content)
-					if err != nil {
-						return err
-					}
-					param.Content = content
-				} else {
-					schema := &openapi3.Schema{}
-					if v.Schema != nil {
-						var err error
-						schema, err = r.getSchemaFromInterface(v.Schema.Value, v.Schema.AllowAdditionalProperties)
-						if err != nil {
-							return err
-						}
-					}
-					param.Schema = &openapi3.SchemaRef{Value: schema}
-				}
-
-				operation.AddParameter(param)
-			}
-		}
-		return nil
-	}
-
-	oasPath := r.router.TransformPathToOasPath(path)
-	err := addParameterIfNotExists(pathParamsType, getPathParamsAutoComplete(schema, oasPath))
-	if err != nil {
-		return getZero[Route](), fmt.Errorf("%w: %s", ErrPathParams, err)
-	}
-
-	err = addParameterIfNotExists(queryParamType, schema.Querystring)
-	if err != nil {
-		return getZero[Route](), fmt.Errorf("%w: %s", ErrPathParams, err)
-	}
-
-	err = addParameterIfNotExists(headerParamType, schema.Headers)
-	if err != nil {
-		return getZero[Route](), fmt.Errorf("%w: %s", ErrPathParams, err)
-	}
-
-	err = addParameterIfNotExists(cookieParamType, schema.Cookies)
-	if err != nil {
-		return getZero[Route](), fmt.Errorf("%w: %s", ErrPathParams, err)
-	}
-
-	err = r.resolveRequestBodySchema(schema.RequestBody, operation)
+	err := r.resolveRequestBodySchema(schema.RequestBody, operation)
 	if err != nil {
 		return getZero[Route](), fmt.Errorf("%w: %s", ErrRequestBody, err)
 	}
@@ -309,35 +288,6 @@ func (r Router[HandlerFunc, MiddlewareFunc, Route]) AddRoute(method string, path
 	}
 
 	return r.AddRawRoute(method, path, handler, operation, middleware...)
-}
-
-func (r Router[_, _, _]) getSchemaFromInterface(v interface{}, allowAdditionalProperties bool) (*openapi3.Schema, error) {
-	if v == nil {
-		return &openapi3.Schema{}, nil
-	}
-
-	reflector := &jsonschema.Reflector{
-		DoNotReference:            true,
-		AllowAdditionalProperties: allowAdditionalProperties,
-		Anonymous:                 true,
-	}
-
-	jsonSchema := reflector.Reflect(v)
-	jsonSchema.Version = ""
-	jsonSchema.Definitions = nil
-
-	data, err := jsonSchema.MarshalJSON()
-	if err != nil {
-		return nil, err
-	}
-
-	schema := openapi3.NewSchema()
-	err = schema.UnmarshalJSON(data)
-	if err != nil {
-		return nil, err
-	}
-
-	return schema, nil
 }
 
 func (r Router[_, _, _]) resolveRequestBodySchema(bodySchema *ContentValue, operation Operation) error {
@@ -352,16 +302,8 @@ func (r Router[_, _, _]) resolveRequestBodySchema(bodySchema *ContentValue, oper
 	requestBody := openapi3.NewRequestBody().WithContent(content)
 
 	requestBody.WithDescription(bodySchema.Description)
-	if bodySchema.Description != "" {
-		for contentType := range bodySchema.Content {
-			if contentType == jsonType {
-				requestBody.Required = true
-				break
-			}
-		}
-	} else {
-		requestBody.Required = bodySchema.Required
-	}
+	// Explicitly set required based on the ContentValue's Required field
+	requestBody.Required = bodySchema.Required
 
 	operation.AddRequestBody(requestBody)
 	return nil
@@ -371,7 +313,15 @@ func (r Router[_, _, _]) resolveResponsesSchema(responses map[int]ContentValue, 
 	if responses == nil {
 		operation.Responses = openapi3.NewResponses()
 	}
-	for statusCode, v := range responses {
+	// Sort response status codes for consistent order
+	var statusCodes []int
+	for code := range responses {
+		statusCodes = append(statusCodes, code)
+	}
+	sort.Ints(statusCodes)
+
+	for _, statusCode := range statusCodes {
+		v := responses[statusCode]
 		response := openapi3.NewResponse()
 		content, err := r.addContentToOASSchema(v.Content)
 		if err != nil {
@@ -382,7 +332,15 @@ func (r Router[_, _, _]) resolveResponsesSchema(responses map[int]ContentValue, 
 
 		if len(v.Headers) > 0 {
 			response.Headers = make(map[string]*openapi3.HeaderRef)
-			for headerName, headerDesc := range v.Headers {
+			// Sort header names for consistent order
+			var headerNames []string
+			for name := range v.Headers {
+				headerNames = append(headerNames, name)
+			}
+			sort.Strings(headerNames)
+
+			for _, headerName := range headerNames {
+				headerDesc := v.Headers[headerName]
 				header := &openapi3.Header{
 					Parameter: openapi3.Parameter{
 						Description: headerDesc,
@@ -403,98 +361,162 @@ func (r Router[_, _, _]) resolveResponsesSchema(responses map[int]ContentValue, 
 	return nil
 }
 
-func (r Router[_, _, _]) resolveParameterSchema(paramType string, paramConfig ParameterValue, operation Operation) error {
-	var keys = make([]string, 0, len(paramConfig))
-	for k := range paramConfig {
-		keys = append(keys, k)
+func (r Router[_, _, _]) getSchemaFromInterface(v interface{}, allowAdditionalProperties bool) (*openapi3.SchemaRef, error) {
+	if v == nil {
+		return &openapi3.SchemaRef{}, nil
 	}
-	sort.Strings(keys)
 
-	for _, key := range keys {
-		v := paramConfig[key]
-		var param *openapi3.Parameter
-		switch paramType {
-		case pathParamsType:
-			param = openapi3.NewPathParameter(key)
-			param.Required = true
-		case queryParamType:
-			param = openapi3.NewQueryParameter(key)
-		case headerParamType:
-			param = openapi3.NewHeaderParameter(key)
-		case cookieParamType:
-			param = openapi3.NewCookieParameter(key)
-		default:
-			return fmt.Errorf("invalid param type")
+	reflector := &jsonschema.Reflector{
+		DoNotReference:            false,
+		AllowAdditionalProperties: allowAdditionalProperties,
+		Anonymous:                 true,
+	}
+
+	// Reflect the Go type into a jsonschema.Schema
+	jsonSchema := reflector.Reflect(v)
+	jsonSchema.Version = ""
+
+	// Handle definitions first - this is where we store the full schema
+	if len(jsonSchema.Definitions) > 0 {
+		if r.swaggerSchema.Components == nil {
+			r.swaggerSchema.Components = &openapi3.Components{}
+		}
+		if r.swaggerSchema.Components.Schemas == nil {
+			r.swaggerSchema.Components.Schemas = make(map[string]*openapi3.SchemaRef)
 		}
 
-		if v.Description != "" {
-			param.Description = v.Description
+		// Sort definition names for consistent order
+		var defNames []string
+		for name := range jsonSchema.Definitions {
+			defNames = append(defNames, name)
 		}
+		sort.Strings(defNames)
 
-		if paramType != pathParamsType {
-			param.Required = v.Required
-		}
-
-		if v.Content != nil {
-			content, err := r.addContentToOASSchema(v.Content)
+		for _, name := range defNames {
+			def := jsonSchema.Definitions[name]
+			// Marshal the jsonschema definition to JSON
+			defData, err := json.Marshal(def)
 			if err != nil {
-				return err
+				return nil, fmt.Errorf("failed to marshal jsonschema definition %q: %w", name, err)
 			}
-			param.Content = content
-		} else {
-			schema := &openapi3.Schema{}
-			if v.Schema != nil {
-				var err error
-				schema, err = r.getSchemaFromInterface(v.Schema.Value, v.Schema.AllowAdditionalProperties)
-				if err != nil {
-					return err
-				}
-			}
-			param.Schema = &openapi3.SchemaRef{Value: schema}
-		}
 
-		operation.AddParameter(param)
+			// Unmarshal the JSON definition into an openapi3.Schema
+			oasSchema := openapi3.NewSchema()
+			if err := oasSchema.UnmarshalJSON(defData); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal jsonschema definition %q into openapi3.Schema: %w", name, err)
+			}
+
+			// Determine the correct component name using the helper
+			componentName := determineComponentName(def.Ref, name)
+
+			// Only add if it doesn't exist yet
+			if _, exists := r.swaggerSchema.Components.Schemas[componentName]; !exists {
+				r.swaggerSchema.Components.Schemas[componentName] = &openapi3.SchemaRef{Value: oasSchema}
+			}
+		}
 	}
 
-	return nil
+	// Check if the reflected schema has a $ref
+	if jsonSchema.Ref != "" {
+		return openapi3.NewSchemaRef(jsonSchema.Ref, nil), nil
+	}
+
+	// Marshal the jsonschema.Schema to JSON
+	data, err := jsonSchema.MarshalJSON()
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal jsonschema: %w", err)
+	}
+
+	// Unmarshal the main schema JSON into an openapi3.Schema
+	oasSchema := openapi3.NewSchema()
+	if err := oasSchema.UnmarshalJSON(data); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal jsonschema JSON into openapi3.Schema: %w", err)
+	}
+
+	// For schemas that don't result in a $ref from jsonschema,
+	// create a SchemaRef with the Value populated and an empty Ref.
+	return openapi3.NewSchemaRef("", oasSchema), nil
 }
 
 func (r Router[_, _, _]) addContentToOASSchema(content Content) (openapi3.Content, error) {
 	oasContent := openapi3.NewContent()
-	for k, v := range content {
+	// Sort content types for consistent order
+	var mediaTypes []string
+	for mt := range content {
+		mediaTypes = append(mediaTypes, mt)
+	}
+	sort.Strings(mediaTypes)
+
+	for _, k := range mediaTypes {
+		v := content[k]
 		var err error
 		schema, err := r.getSchemaFromInterface(v.Value, v.AllowAdditionalProperties)
 		if err != nil {
 			return nil, err
 		}
-		oasContent[k] = openapi3.NewMediaType().WithSchema(schema)
+		oasContent[k] = openapi3.NewMediaType().WithSchemaRef(schema)
 	}
 	return oasContent, nil
 }
 
 func getPathParamsAutoComplete(schema Definitions, path string) ParameterValue {
-	if schema.PathParams == nil {
-		re := regexp.MustCompile(`\{([^}]+)\}`)
-		segments := strings.Split(path, "/")
-		for _, segment := range segments {
-			params := re.FindAllStringSubmatch(segment, -1)
-			if len(params) == 0 {
-				continue
-			}
-			if schema.PathParams == nil {
-				schema.PathParams = make(ParameterValue)
-			}
-			for _, param := range params {
-				schema.PathParams[param[1]] = Parameter{
-					Schema: &Schema{Value: ""},
-				}
+	// If PathParams are explicitly defined, use them.
+	if schema.PathParams != nil {
+		return schema.PathParams
+	}
+
+	// Otherwise, auto-complete from the path string.
+	autoCompletedParams := make(ParameterValue)
+	re := regexp.MustCompile(`\{([^}]+)\}`)
+	segments := strings.Split(path, "/")
+	for _, segment := range segments {
+		params := re.FindAllStringSubmatch(segment, -1)
+		if len(params) == 0 {
+			continue
+		}
+		for _, param := range params {
+			autoCompletedParams[param[1]] = Parameter{
+				Schema: &Schema{Value: ""}, // Default to string schema
 			}
 		}
 	}
-	return schema.PathParams
+
+	// Return nil if no path parameters were found and schema.PathParams was nil
+	if len(autoCompletedParams) == 0 && schema.PathParams == nil {
+		return nil
+	}
+
+	return autoCompletedParams
 }
 
 func getZero[T any]() T {
 	var result T
 	return result
+}
+
+// determineComponentName extracts the component name from a jsonschema $ref or definition name.
+// It handles different jsonschema reference formats (#/$defs/, #/definitions/, #/components/schemas/)
+// and falls back to the provided name if no ref is present or recognized.
+func determineComponentName(ref, name string) string {
+	if ref == "" {
+		return name
+	}
+
+	// Handle invalid reference format (e.g. "#/")
+	if len(strings.TrimPrefix(ref, "#/")) == 0 {
+		return ""
+	}
+
+	ref = strings.TrimSuffix(ref, "/")
+	if strings.Contains(ref, "$defs") {
+		return strings.TrimPrefix(ref, "#/$defs/")
+	} else if strings.Contains(ref, "definitions") {
+		return strings.TrimPrefix(ref, "#/definitions/")
+	} else if strings.Contains(ref, "components/schemas") {
+		return strings.TrimPrefix(ref, "#/components/schemas/")
+	} else if strings.HasPrefix(ref, "#/") {
+		// Local ref, but not in expected path, assume it's a component name
+		return strings.TrimPrefix(ref, "#/")
+	}
+	return name
 }

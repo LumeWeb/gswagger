@@ -1,4 +1,76 @@
 {
+  "components": {
+    "schemas": {
+      "Employees": {
+        "additionalProperties": false,
+        "properties": {
+          "organization_name": {
+            "type": "string"
+          },
+          "users": {
+            "$ref": "#/components/schemas/Users"
+          }
+        },
+        "required": [
+          "organization_name",
+          "users"
+        ],
+        "type": "object"
+      },
+      "User": {
+        "additionalProperties": false,
+        "properties": {
+          "address": {
+            "title": "user address",
+            "type": "string"
+          },
+          "groups": {
+            "default": [
+              "users"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "title": "groups of the user",
+            "type": "array"
+          },
+          "name": {
+            "example": "Jane",
+            "title": "The user name",
+            "type": "string"
+          },
+          "phone": {
+            "title": "mobile number of user",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "phone",
+          "address"
+        ],
+        "type": "object"
+      },
+      "Users": {
+        "items": {
+          "$ref": "#/components/schemas/User"
+        },
+        "type": "array"
+      },
+      "errorResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "type": "object"
+      }
+    }
+  },
   "info": {
     "title": "test openapi title",
     "version": "test openapi version"
@@ -12,54 +84,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "organization_name": {
-                      "type": "string"
-                    },
-                    "users": {
-                      "items": {
-                        "additionalProperties": false,
-                        "properties": {
-                          "address": {
-                            "title": "user address",
-                            "type": "string"
-                          },
-                          "groups": {
-                            "default": [
-                              "users"
-                            ],
-                            "items": {
-                              "type": "string"
-                            },
-                            "title": "groups of the user",
-                            "type": "array"
-                          },
-                          "name": {
-                            "example": "Jane",
-                            "title": "The user name",
-                            "type": "string"
-                          },
-                          "phone": {
-                            "title": "mobile number of user",
-                            "type": "integer"
-                          }
-                        },
-                        "required": [
-                          "name",
-                          "phone",
-                          "address"
-                        ],
-                        "type": "object"
-                      },
-                      "type": "array"
-                    }
-                  },
-                  "required": [
-                    "organization_name",
-                    "users"
-                  ],
-                  "type": "object"
+                  "$ref": "#/components/schemas/Employees"
                 }
               }
             },
@@ -75,41 +100,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "address": {
-                        "title": "user address",
-                        "type": "string"
-                      },
-                      "groups": {
-                        "default": [
-                          "users"
-                        ],
-                        "items": {
-                          "type": "string"
-                        },
-                        "title": "groups of the user",
-                        "type": "array"
-                      },
-                      "name": {
-                        "example": "Jane",
-                        "title": "The user name",
-                        "type": "string"
-                      },
-                      "phone": {
-                        "title": "mobile number of user",
-                        "type": "integer"
-                      }
-                    },
-                    "required": [
-                      "name",
-                      "phone",
-                      "address"
-                    ],
-                    "type": "object"
-                  },
-                  "type": "array"
+                  "$ref": "#/components/schemas/Users"
                 }
               }
             },
@@ -122,38 +113,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "additionalProperties": false,
-                "properties": {
-                  "address": {
-                    "title": "user address",
-                    "type": "string"
-                  },
-                  "groups": {
-                    "default": [
-                      "users"
-                    ],
-                    "items": {
-                      "type": "string"
-                    },
-                    "title": "groups of the user",
-                    "type": "array"
-                  },
-                  "name": {
-                    "example": "Jane",
-                    "title": "The user name",
-                    "type": "string"
-                  },
-                  "phone": {
-                    "title": "mobile number of user",
-                    "type": "integer"
-                  }
-                },
-                "required": [
-                  "name",
-                  "phone",
-                  "address"
-                ],
-                "type": "object"
+                "$ref": "#/components/schemas/User"
               }
             }
           }
@@ -173,16 +133,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "message": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "message"
-                  ],
-                  "type": "object"
+                  "$ref": "#/components/schemas/errorResponse"
                 }
               }
             },

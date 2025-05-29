@@ -1,4 +1,20 @@
 {
+  "components": {
+    "schemas": {
+      "ParamContent": {
+        "additionalProperties": false,
+        "properties": {
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "value"
+        ],
+        "type": "object"
+      }
+    }
+  },
   "info": {
     "title": "test openapi title",
     "version": "test openapi version"
@@ -12,16 +28,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "value": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "value"
-                  ],
-                  "type": "object"
+                  "$ref": "#/components/schemas/ParamContent"
                 }
               }
             },

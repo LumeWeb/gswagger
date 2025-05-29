@@ -69,8 +69,6 @@ type Router[HandlerFunc any, MiddlewareFunc any, Route any] struct {
 
 	hostRouters map[string]*Router[HandlerFunc, MiddlewareFunc, Route]
 
-	defaultRouter *Router[HandlerFunc, MiddlewareFunc, Route]
-
 	frameworkRouterFactory func() apirouter.Router[HandlerFunc, MiddlewareFunc, Route]
 
 	isSubrouter bool
@@ -109,15 +107,24 @@ func (r *Router[HandlerFunc, MiddlewareFunc, Route]) SubRouter(router apirouter.
 // Returns an error if pathPrefix is invalid.
 func (r *Router[HandlerFunc, MiddlewareFunc, Route]) Group(pathPrefix string) (*Router[HandlerFunc, MiddlewareFunc, Route], error) {
 	apiGroupRouter := r.router.Group(pathPrefix)
+	// Use host's schema if this is a host router, otherwise use root schema
+	var schemaToShare *openapi3.T
+	if r.host != "" {
+		schemaToShare = r.swaggerSchema
+	} else {
+		schemaToShare = r.rootRouter.swaggerSchema
+	}
+
 	return &Router[HandlerFunc, MiddlewareFunc, Route]{
 		router:                apiGroupRouter,
-		swaggerSchema:         r.rootRouter.swaggerSchema,          // Share the root schema
+		swaggerSchema:         schemaToShare,                       // Share appropriate schema
 		context:               r.rootRouter.context,                // Share the root context
 		jsonDocumentationPath: r.rootRouter.jsonDocumentationPath,  // Share doc paths
 		yamlDocumentationPath: r.rootRouter.yamlDocumentationPath,  // Share doc paths
 		pathPrefix:            path.Join(r.pathPrefix, pathPrefix), // Append prefix
 		host:                  r.host,                              // Inherit host from parent
 		rootRouter:            r.rootRouter,                        // Reference the root router
+		hostRouters:           r.rootRouter.hostRouters,            // Share host routers map
 		isSubrouter:           true,
 	}, nil
 }
@@ -166,6 +173,7 @@ func (r *Router[HandlerFunc, MiddlewareFunc, Route]) Host(host string) (*Router[
 		pathPrefix:            "",
 		host:                  host,
 		rootRouter:            r,
+		hostRouters:           r.hostRouters, // Share the host routers map
 	}
 
 	r.hostRouters[host] = hostRouter
@@ -250,11 +258,9 @@ func NewRouter[HandlerFunc, MiddlewareFunc, Route any](frameworkRouter apirouter
 		host:                   "",
 		rootRouter:             nil,
 		hostRouters:            make(map[string]*Router[HandlerFunc, MiddlewareFunc, Route]),
-		defaultRouter:          nil,
 		frameworkRouterFactory: options.FrameworkRouterFactory,
 	}
 	root.rootRouter = root
-	root.defaultRouter = root
 
 	return root, nil
 }
@@ -271,7 +277,7 @@ func (r *Router[HandlerFunc, MiddlewareFunc, Route]) ServeHTTP(w http.ResponseWr
 	if hostRouter, ok := r.hostRouters[host]; ok && hostRouter != nil {
 		handlerRouter = hostRouter
 	} else {
-		handlerRouter = r.defaultRouter
+		handlerRouter = r.rootRouter
 	}
 
 	if handlerRouter == nil {
@@ -279,7 +285,17 @@ func (r *Router[HandlerFunc, MiddlewareFunc, Route]) ServeHTTP(w http.ResponseWr
 		return
 	}
 
-	if req.URL.Path == handlerRouter.jsonDocumentationPath || req.URL.Path == handlerRouter.yamlDocumentationPath {
+	// Calculate the expected documentation paths without the router's pathPrefix
+	// This is needed because the request path won't include the router's prefix,
+	// but the documentation paths stored in the router do include it
+	expectedJSONDocPath := strings.TrimPrefix(handlerRouter.jsonDocumentationPath, handlerRouter.pathPrefix)
+	expectedYAMLDocPath := strings.TrimPrefix(handlerRouter.yamlDocumentationPath, handlerRouter.pathPrefix)
+
+	// Check if the request path matches the documentation paths (without the prefix)
+	// Example: If pathPrefix="/api/v1" and jsonDocumentationPath="/api/v1/documentation/json",
+	// then expectedJSONDocPath="/documentation/json" which matches the incoming request path
+	if req.URL.Path == expectedJSONDocPath || req.URL.Path == expectedYAMLDocPath {
+		// The underlying router (which was created with the prefix) will handle this correctly
 		if handler, ok := handlerRouter.router.Router().(http.Handler); ok {
 			handler.ServeHTTP(w, req)
 			return
@@ -289,7 +305,7 @@ func (r *Router[HandlerFunc, MiddlewareFunc, Route]) ServeHTTP(w http.ResponseWr
 	}
 
 	// First try the host router if it exists
-	if handlerRouter != r.defaultRouter {
+	if handlerRouter != r.rootRouter {
 		if handlerRouter.router.HasRoute(req) {
 			if handler, ok := handlerRouter.router.Router().(http.Handler); ok {
 				handler.ServeHTTP(w, req)
@@ -298,21 +314,21 @@ func (r *Router[HandlerFunc, MiddlewareFunc, Route]) ServeHTTP(w http.ResponseWr
 		}
 	}
 
-	// Then try default router
-	if r.defaultRouter.router.HasRoute(req) {
-		if handler, ok := r.defaultRouter.router.Router().(http.Handler); ok {
+	// Then try root router
+	if r.rootRouter.router.HasRoute(req) {
+		if handler, ok := r.rootRouter.router.Router().(http.Handler); ok {
 			handler.ServeHTTP(w, req)
 			return
 		}
 	}
 
-	// If both failed, serve from host router if host matches, else fallback to default
-	if handlerRouter != r.defaultRouter {
+	// If both failed, serve from host router if host matches, else fallback to root
+	if handlerRouter != r.rootRouter {
 		if handler, ok := handlerRouter.router.Router().(http.Handler); ok {
 			handler.ServeHTTP(w, req)
 			return
 		}
-	} else if handler, ok := r.defaultRouter.router.Router().(http.Handler); ok {
+	} else if handler, ok := r.rootRouter.router.Router().(http.Handler); ok {
 		handler.ServeHTTP(w, req)
 		return
 	}
@@ -350,63 +366,59 @@ func generateNewValidOpenapi(openapi *openapi3.T) (*openapi3.T, error) {
 }
 
 func (r *Router[HandlerFunc, MiddlewareFunc, Route]) GenerateAndExposeOpenapi() error {
-	if r.host != "" {
-		if err := r.swaggerSchema.Validate(r.context); err != nil {
-			return fmt.Errorf("%w for host %s: %s", ErrValidatingOAS, r.host, err)
-		}
-
-		jsonDocumentationPath := path.Join(r.pathPrefix, r.jsonDocumentationPath)
-		yamlDocumentationPath := path.Join(r.pathPrefix, r.yamlDocumentationPath)
-
-		jsonSwagger, err := r.swaggerSchema.MarshalJSON()
-		if err != nil {
-			return fmt.Errorf("%w json marshal for host %s: %s", ErrGenerateOAS, r.host, err)
-		}
-		r.router.AddRoute(http.MethodGet, jsonDocumentationPath, r.router.SwaggerHandler("application/json", jsonSwagger))
-
-		yamlSwagger, err := yaml.JSONToYAML(jsonSwagger)
-		if err != nil {
-			return fmt.Errorf("%w yaml marshal for host %s: %s", ErrGenerateOAS, r.host, err)
-		}
-		r.router.AddRoute(http.MethodGet, yamlDocumentationPath, r.router.SwaggerHandler("text/plain", yamlSwagger))
+	// Skip if no swagger schema - this can happen if the router is a host router
+	// that was never used to register any routes
+	if r.swaggerSchema == nil {
 		return nil
 	}
 
-	if r.defaultRouter != nil {
-		if err := r.defaultRouter.swaggerSchema.Validate(r.context); err != nil {
-			return fmt.Errorf("%w: %s", ErrValidatingOAS, err)
-		}
-
-		jsonSwagger, err := r.defaultRouter.swaggerSchema.MarshalJSON()
-		if err != nil {
-			return fmt.Errorf("%w json marshal: %s", ErrGenerateOAS, err)
-		}
-		r.defaultRouter.router.AddRoute(http.MethodGet, r.jsonDocumentationPath, r.defaultRouter.router.SwaggerHandler("application/json", jsonSwagger))
-
-		yamlSwagger, err := yaml.JSONToYAML(jsonSwagger)
-		if err != nil {
-			return fmt.Errorf("%w yaml marshal: %s", ErrGenerateOAS, err)
-		}
-		r.defaultRouter.router.AddRoute(http.MethodGet, r.yamlDocumentationPath, r.defaultRouter.router.SwaggerHandler("text/plain", yamlSwagger))
+	// Get router type description for error messages
+	routerType := "root"
+	if r.host != "" {
+		routerType = fmt.Sprintf("host %q", r.host)
+	} else if r.isSubrouter {
+		routerType = "subrouter"
 	}
 
-	for host, hostRouter := range r.hostRouters {
-		if err := hostRouter.swaggerSchema.Validate(r.context); err != nil {
-			return fmt.Errorf("%w for host %s: %s", ErrValidatingOAS, host, err)
+	// Resolve all references in paths
+	if r.swaggerSchema.Paths != nil {
+		for _path, pathItem := range r.swaggerSchema.Paths.Map() {
+			for method, operation := range pathItem.Operations() {
+				op := Operation{operation}
+				if err := op.ResolveReferences(r.swaggerSchema); err != nil {
+					return fmt.Errorf("%w: failed to resolve references in %s %s: %v",
+						ErrGenerateOAS, method, _path, err)
+				}
+			}
 		}
-
-		jsonSwagger, err := hostRouter.swaggerSchema.MarshalJSON()
-		if err != nil {
-			return fmt.Errorf("%w json marshal for host %s: %s", ErrGenerateOAS, host, err)
-		}
-		hostRouter.router.AddRoute(http.MethodGet, hostRouter.jsonDocumentationPath, hostRouter.router.SwaggerHandler("application/json", jsonSwagger))
-
-		yamlSwagger, err := yaml.JSONToYAML(jsonSwagger)
-		if err != nil {
-			return fmt.Errorf("%w yaml marshal for host %s: %s", ErrGenerateOAS, host, err)
-		}
-		hostRouter.router.AddRoute(http.MethodGet, hostRouter.yamlDocumentationPath, hostRouter.router.SwaggerHandler("text/plain", yamlSwagger))
 	}
+
+	// Validate the schema
+	if err := r.swaggerSchema.Validate(r.context); err != nil {
+		return fmt.Errorf("%w for %s: %s", ErrValidatingOAS, routerType, err)
+	}
+
+	// Marshal the schema to JSON
+	jsonSwagger, err := r.swaggerSchema.MarshalJSON()
+	if err != nil {
+		return fmt.Errorf("%w json marshal for %s: %s", ErrGenerateOAS, routerType, err)
+	}
+
+	// Add JSON documentation route
+	jsonPath := r.jsonDocumentationPath
+	// The pathPrefix is already applied to the underlying router in NewRouter,
+	// so we register the documentation handler with the path *including* the prefix.
+	r.router.AddRoute(http.MethodGet, jsonPath, r.router.SwaggerHandler("application/json", jsonSwagger))
+
+	// Add YAML documentation route
+	yamlSwagger, err := yaml.JSONToYAML(jsonSwagger)
+	if err != nil {
+		return fmt.Errorf("%w yaml marshal for %s: %s", ErrGenerateOAS, routerType, err)
+	}
+	yamlPath := r.yamlDocumentationPath
+	// The pathPrefix is already applied to the underlying router in NewRouter,
+	// so we register the documentation handler with the path *including* the prefix.
+	r.router.AddRoute(http.MethodGet, yamlPath, r.router.SwaggerHandler("text/plain", yamlSwagger))
 
 	return nil
 }
@@ -417,3 +429,6 @@ func isValidDocumentationPath(path string) error {
 	}
 	return nil
 }
+
+// paramLocationOrder defines the consistent ordering of parameter locations
+var paramLocationOrder = map[string]int{"path": 0, "query": 1, "header": 2, "cookie": 3}

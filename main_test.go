@@ -173,10 +173,8 @@ func TestFiberNewRouter(t *testing.T) {
 			yamlDocumentationPath: DefaultYAMLDocumentationPath,
 			hostRouters:           make(map[string]*Router[fiber.Handler, fiber.Handler, gfiber.Route]),
 			rootRouter:            nil, // This will be set below
-			defaultRouter:         nil, // This will be set below
 		}
 		expected.rootRouter = expected    // Set root reference to self
-		expected.defaultRouter = expected // Set default router to self
 		require.Equal(t, expected, r)
 	})
 
@@ -197,10 +195,8 @@ func TestFiberNewRouter(t *testing.T) {
 			yamlDocumentationPath: DefaultYAMLDocumentationPath,
 			hostRouters:           make(map[string]*Router[fiber.Handler, fiber.Handler, gfiber.Route]),
 			rootRouter:            nil, // This will be set below
-			defaultRouter:         nil, // This will be set below
 		}
 		expected.rootRouter = expected    // Set root reference to self
-		expected.defaultRouter = expected // Set default router to self
 		require.Equal(t, expected, r)
 	})
 
@@ -208,8 +204,8 @@ func TestFiberNewRouter(t *testing.T) {
 		type key struct{}
 		ctx := context.WithValue(context.Background(), key{}, "value")
 		r, err := NewRouter(fiberRouter, Options[fiber.Handler, fiber.Handler, gfiber.Route]{
-			Openapi:               openapi,
-			Context:               ctx,
+			Openapi: openapi,
+			Context: ctx,
 			JSONDocumentationPath: "/json/path",
 			YAMLDocumentationPath: "/yaml/path",
 		})
@@ -223,10 +219,8 @@ func TestFiberNewRouter(t *testing.T) {
 			yamlDocumentationPath: "/yaml/path",
 			hostRouters:           make(map[string]*Router[fiber.Handler, fiber.Handler, gfiber.Route]),
 			rootRouter:            nil, // This will be set below
-			defaultRouter:         nil, // This will be set below
 		}
 		expected.rootRouter = expected    // Set root reference to self
-		expected.defaultRouter = expected // Set default router to self
 		require.Equal(t, expected, r)
 	})
 
@@ -508,10 +502,8 @@ func TestGorillaNewRouter(t *testing.T) {
 			yamlDocumentationPath: DefaultYAMLDocumentationPath,
 			hostRouters:           make(map[string]*Router[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]),
 			rootRouter:            nil, // This will be set below
-			defaultRouter:         nil, // This will be set below
 		}
 		expected.rootRouter = expected    // Set root reference to self
-		expected.defaultRouter = expected // Set default router to self
 		require.Equal(t, expected, r)
 	})
 
@@ -532,10 +524,8 @@ func TestGorillaNewRouter(t *testing.T) {
 			yamlDocumentationPath: DefaultYAMLDocumentationPath,
 			hostRouters:           make(map[string]*Router[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]),
 			rootRouter:            nil, // This will be set below
-			defaultRouter:         nil, // This will be set below
 		}
 		expected.rootRouter = expected    // Set root reference to self
-		expected.defaultRouter = expected // Set default router to self
 		require.Equal(t, expected, r)
 	})
 
@@ -558,10 +548,8 @@ func TestGorillaNewRouter(t *testing.T) {
 			yamlDocumentationPath: "/yaml/path",
 			hostRouters:           make(map[string]*Router[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]),
 			rootRouter:            nil, // This will be set below
-			defaultRouter:         nil, // This will be set below
 		}
 		expected.rootRouter = expected    // Set root reference to self
-		expected.defaultRouter = expected // Set default router to self
 		require.Equal(t, expected, r)
 	})
 
@@ -680,7 +668,8 @@ func TestGorillaGenerateAndExposeSwagger(t *testing.T) {
 
 		err = router.GenerateAndExposeOpenapi()
 		require.Error(t, err)
-		require.True(t, strings.HasPrefix(err.Error(), fmt.Sprintf("%s:", ErrValidatingOAS)))
+		// Update the assertion to check for the correct error prefix
+		require.True(t, strings.HasPrefix(err.Error(), fmt.Sprintf("%s for root:", ErrValidatingOAS)))
 	})
 
 	t.Run("correctly expose json documentation from loaded openapi file", func(t *testing.T) {
@@ -1135,10 +1124,8 @@ func TestEchoNewRouter(t *testing.T) {
 			yamlDocumentationPath: DefaultYAMLDocumentationPath,
 			hostRouters:           make(map[string]*Router[echo.HandlerFunc, echo.MiddlewareFunc, gecho.Route]),
 			rootRouter:            nil, // This will be set below
-			defaultRouter:         nil, // This will be set below
 		}
 		expected.rootRouter = expected    // Set root reference to self
-		expected.defaultRouter = expected // Set default router to self
 		require.Equal(t, expected, r)
 	})
 }
