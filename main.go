@@ -182,6 +182,18 @@ func (r *Router[HandlerFunc, MiddlewareFunc, Route]) SwaggerSchema(schema *opena
 	return r
 }
 
+// SetInfo sets the OpenAPI Info struct (title, version, description etc) for the router.
+// This allows modifying the API metadata after router creation.
+// Returns the router instance for method chaining.
+// If info is nil, the method is a no-op and returns the router unchanged.
+func (r *Router[HandlerFunc, MiddlewareFunc, Route]) SetInfo(info *openapi3.Info) *Router[HandlerFunc, MiddlewareFunc, Route] {
+	if info == nil {
+		return r
+	}
+	r.swaggerSchema.Info = info
+	return r
+}
+
 type Options[HandlerFunc any, MiddlewareFunc any, Route any] struct {
 	Context context.Context
 	Openapi *openapi3.T
