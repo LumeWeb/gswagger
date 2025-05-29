@@ -1,4 +1,45 @@
 {
+  "components": {
+    "schemas": {
+      "UserProfileRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "firstName": {
+            "title": "user first name",
+            "type": "string"
+          },
+          "lastName": {
+            "title": "user last name",
+            "type": "string"
+          },
+          "metadata": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "custom properties"
+          },
+          "userType": {
+            "enum": [
+              "simple",
+              "advanced"
+            ],
+            "title": "type of user",
+            "type": "string"
+          }
+        },
+        "required": [
+          "firstName",
+          "lastName"
+        ],
+        "type": "object"
+      }
+    }
+  },
   "info": {
     "title": "test openapi title",
     "version": "test openapi version"
@@ -58,38 +99,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "additionalProperties": false,
-                "properties": {
-                  "firstName": {
-                    "title": "user first name",
-                    "type": "string"
-                  },
-                  "lastName": {
-                    "title": "user last name",
-                    "type": "string"
-                  },
-                  "metadata": {
-                    "oneOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "number"
-                      }
-                    ],
-                    "title": "custom properties"
-                  },
-                  "userType": {
-                    "title": "type of user",
-                    "type": "string",
-                    "enum": ["simple", "advanced"]
-                  }
-                },
-                "required": [
-                  "firstName",
-                  "lastName"
-                ],
-                "type": "object"
+                "$ref": "#/components/schemas/UserProfileRequest"
               }
             }
           }

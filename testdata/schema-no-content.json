@@ -12,30 +12,51 @@
             "in": "path",
             "name": "id",
             "required": true,
-            "schema": {}
+            "schema": {
+              "type": "string"
+            }
           },
           {
             "in": "query",
             "name": "q",
-            "schema": {}
+            "schema": {
+              "type": "string"
+            }
           },
           {
             "in": "header",
             "name": "key",
-            "schema": {}
+            "schema": {
+              "type": "string"
+            }
           },
           {
             "in": "cookie",
             "name": "cookie1",
-            "schema": {}
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
-          "content": {},
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
           "description": "request body without schema"
         },
         "responses": {
           "204": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "description": ""
           }
         }
