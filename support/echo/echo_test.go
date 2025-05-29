@@ -12,6 +12,28 @@ import (
 )
 
 func TestEchoRouter(t *testing.T) {
+	t.Run("matches routes added to main router", func(t *testing.T) {
+		echoRouter := echo.New()
+		ar := NewRouter(echoRouter)
+
+		// Add route
+		ar.AddRoute(http.MethodGet, "/test", func(c echo.Context) error {
+			return c.String(http.StatusOK, "")
+		})
+
+		// Test matching route
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
+		require.True(t, ar.HasRoute(req))
+
+		// Test non-matching route
+		req = httptest.NewRequest(http.MethodGet, "/not-found", nil)
+		require.False(t, ar.HasRoute(req))
+
+		// Test matching method
+		req = httptest.NewRequest(http.MethodPost, "/test", nil)
+		require.False(t, ar.HasRoute(req))
+	})
+
 	t.Run("group with empty path prefix", func(t *testing.T) {
 		echoRouter := echo.New()
 		ar := NewRouter(echoRouter)

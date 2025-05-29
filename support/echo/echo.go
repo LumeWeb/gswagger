@@ -1,12 +1,11 @@
 package echo
 
 import (
-	"go.lumeweb.com/gswagger/apirouter"
-	"strings"
-
-	"net/http"
-
 	"github.com/labstack/echo/v4"
+	"go.lumeweb.com/gswagger/apirouter"
+	"net/http"
+	"reflect"
+	"strings"
 )
 
 type Route = *echo.Route
@@ -95,6 +94,34 @@ func (r echoRouter) Host(host string) apirouter.Router[echo.HandlerFunc, echo.Mi
 		group:  hostRouter,
 	}
 }
+
+
+func (r echoRouter) HasRoute(req *http.Request) bool {
+	router := r.router.Router()
+	c := r.router.AcquireContext()
+	defer r.router.ReleaseContext(c)
+	c.Reset(req, nil)
+
+	router.Find(req.Method, echo.GetPath(req), c)
+
+	handler := c.Handler()
+	if handler == nil {
+		return false
+	}
+
+	// Get the pointer values (uintptr) for comparison
+	handlerPtr404 := reflect.ValueOf(echo.NotFoundHandler).Pointer()
+	handlerPtr405 := reflect.ValueOf(echo.MethodNotAllowedHandler).Pointer()
+	handlerPtr := reflect.ValueOf(handler).Pointer()
+
+	// Compare the pointer values
+	if handlerPtr == handlerPtr404 || handlerPtr == handlerPtr405 {
+		return false
+	}
+
+	return true
+}
+
 func (r echoRouter) Use(middleware ...echo.MiddlewareFunc) {
 	if r.group != nil {
 		r.group.Use(middleware...)

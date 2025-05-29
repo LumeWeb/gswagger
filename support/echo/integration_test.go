@@ -2,6 +2,7 @@ package echo_test
 
 import (
 	"context"
+	"go.lumeweb.com/gswagger/apirouter"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -30,6 +31,71 @@ func TestEchoIntegration(t *testing.T) {
 
 		err := oasRouter.GenerateAndExposeOpenapi()
 		require.NoError(t, err)
+
+		t.Run("host router only matches requests for its host", func(t *testing.T) {
+			// Add host route
+			hostRouter, err := oasRouter.Host("api.example.com")
+			require.NoError(t, err)
+			hostRouter.AddRoute(http.MethodGet, "/host", func(c echo.Context) error {
+				return c.String(http.StatusOK, "host-response")
+			}, swagger.Definitions{})
+
+			// Add fallback route to default router
+			oasRouter.AddRoute(http.MethodGet, "/fallback", func(c echo.Context) error {
+				return c.String(http.StatusOK, "fallback-response")
+			}, swagger.Definitions{})
+
+			tests := []struct {
+				name           string
+				host           string
+				path           string
+				expectedStatus int
+				expectedBody   string
+			}{
+				{
+					name:           "matches correct host",
+					host:           "api.example.com",
+					path:           "/host",
+					expectedStatus: http.StatusOK,
+					expectedBody:   "host-response",
+				},
+				{
+					name:           "rejects wrong host",
+					host:           "other.example.com",
+					path:           "/host",
+					expectedStatus: http.StatusNotFound,
+				},
+				{
+					name:           "fallback works for any host",
+					host:           "api.example.com",
+					path:           "/fallback",
+					expectedStatus: http.StatusOK,
+					expectedBody:   "fallback-response",
+				},
+				{
+					name:           "fallback works for other host",
+					host:           "other.example.com",
+					path:           "/fallback",
+					expectedStatus: http.StatusOK,
+					expectedBody:   "fallback-response",
+				},
+			}
+
+			for _, test := range tests {
+				t.Run(test.name, func(t *testing.T) {
+					w := httptest.NewRecorder()
+					req := httptest.NewRequest(http.MethodGet, test.path, nil)
+					req.Host = test.host
+					oasRouter.ServeHTTP(w, req)
+
+					require.Equal(t, test.expectedStatus, w.Result().StatusCode)
+					if test.expectedBody != "" {
+						body := readBody(t, w.Result().Body)
+						require.Equal(t, test.expectedBody, body)
+					}
+				})
+			}
+		})
 
 		t.Run("/hello", func(t *testing.T) {
 			w := httptest.NewRecorder()
@@ -145,6 +211,9 @@ func setupEchoSwagger(t *testing.T) (*echo.Echo, *swagger.Router[echo.HandlerFun
 				Title:   swaggerOpenapiTitle,
 				Version: swaggerOpenapiVersion,
 			},
+		},
+		FrameworkRouterFactory: func() apirouter.Router[echo.HandlerFunc, echo.MiddlewareFunc, *echo.Route] {
+			return oasEcho.NewRouter(echo.New())
 		},
 	})
 	require.NoError(t, err)
