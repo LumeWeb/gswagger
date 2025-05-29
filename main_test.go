@@ -1203,6 +1203,101 @@ func TestEchoHostRouting(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "api.example.com", hostRouter.host)
 	})
+
+	t.Run("host routing", func(t *testing.T) {
+		_, router := setupEchoHostRouterTest(t)
+
+		// Add route to host router
+		hostRouter, err := router.Host("api.example.com")
+		require.NoError(t, err)
+		hostRouter.AddRoute(http.MethodGet, "/host-route", func(c echo.Context) error {
+			return c.String(http.StatusOK, "host")
+		}, Definitions{})
+
+		// Add fallback route to default router
+		router.AddRoute(http.MethodGet, "/fallback", func(c echo.Context) error {
+			return c.String(http.StatusOK, "fallback")
+		}, Definitions{})
+
+		// Test cases
+		tests := []struct {
+			name             string
+			host             string
+			path             string
+			method           string
+			expectedStatus   int
+			expectedBody     string
+			expectedHasRoute bool
+		}{
+			{
+				name:             "matches correct host",
+				host:             "api.example.com",
+				path:             "/host-route",
+				method:           http.MethodGet,
+				expectedStatus:   http.StatusOK,
+				expectedBody:     "host",
+				expectedHasRoute: true,
+			},
+			{
+				name:             "rejects wrong host",
+				host:             "other.example.com",
+				path:             "/host-route",
+				method:           http.MethodGet,
+				expectedStatus:   http.StatusNotFound,
+				expectedHasRoute: false,
+			},
+			{
+				name:             "rejects wrong method",
+				host:             "api.example.com",
+				path:             "/host-route",
+				method:           http.MethodPost,
+				expectedStatus:   http.StatusMethodNotAllowed,
+				expectedHasRoute: false,
+			},
+			{
+				name:             "rejects wrong path",
+				host:             "api.example.com",
+				path:             "/invalid",
+				method:           http.MethodGet,
+				expectedStatus:   http.StatusNotFound,
+				expectedHasRoute: false,
+			},
+			{
+				name:             "fallback works for any host",
+				host:             "api.example.com",
+				path:             "/fallback",
+				method:           http.MethodGet,
+				expectedStatus:   http.StatusOK,
+				expectedBody:     "fallback",
+				expectedHasRoute: true,
+			},
+			{
+				name:             "fallback works for other host",
+				host:             "other.example.com",
+				path:             "/fallback",
+				method:           http.MethodGet,
+				expectedStatus:   http.StatusOK,
+				expectedBody:     "fallback",
+				expectedHasRoute: true,
+			},
+		}
+
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				// Test routing behavior through ServeHTTP
+				w := httptest.NewRecorder()
+				req := httptest.NewRequest(test.method, test.path, nil)
+				req.Host = test.host
+				router.ServeHTTP(w, req)
+
+				require.Equal(t, test.expectedStatus, w.Result().StatusCode)
+				if test.expectedBody != "" {
+					body, _ := io.ReadAll(w.Result().Body)
+					require.Equal(t, test.expectedBody, string(body))
+				}
+			})
+		}
+	})
 }
 
 func readBody(t *testing.T, requestBody io.ReadCloser) string {

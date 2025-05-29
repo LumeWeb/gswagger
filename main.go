@@ -288,7 +288,31 @@ func (r *Router[HandlerFunc, MiddlewareFunc, Route]) ServeHTTP(w http.ResponseWr
 		return
 	}
 
-	if handler, ok := handlerRouter.router.Router().(http.Handler); ok {
+	// First try the host router if it exists
+	if handlerRouter != r.defaultRouter {
+		if handlerRouter.router.HasRoute(req) {
+			if handler, ok := handlerRouter.router.Router().(http.Handler); ok {
+				handler.ServeHTTP(w, req)
+				return
+			}
+		}
+	}
+
+	// Then try default router
+	if r.defaultRouter.router.HasRoute(req) {
+		if handler, ok := r.defaultRouter.router.Router().(http.Handler); ok {
+			handler.ServeHTTP(w, req)
+			return
+		}
+	}
+
+	// If both failed, serve from host router if host matches, else fallback to default
+	if handlerRouter != r.defaultRouter {
+		if handler, ok := handlerRouter.router.Router().(http.Handler); ok {
+			handler.ServeHTTP(w, req)
+			return
+		}
+	} else if handler, ok := r.defaultRouter.router.Router().(http.Handler); ok {
 		handler.ServeHTTP(w, req)
 		return
 	}

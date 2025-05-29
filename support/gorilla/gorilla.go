@@ -22,6 +22,11 @@ func (r gorillaRouter) Use(middleware ...mux.MiddlewareFunc) {
 	r.router.Use(middleware...)
 }
 
+func (r gorillaRouter) HasRoute(req *http.Request) bool {
+	var match mux.RouteMatch
+	return r.router.Match(req, &match)
+}
+
 type gorillaRouter struct {
 	router *mux.Router // Can be main router or subrouter
 }
