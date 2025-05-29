@@ -1240,6 +1240,206 @@ func setupGorillaHostRouterTest(t *testing.T) (*mux.Router, *Router[gorilla.Hand
 	return muxRouter, router
 }
 
+func TestSetInfo(t *testing.T) {
+	t.Run("set info on root router", func(t *testing.T) {
+		muxRouter := mux.NewRouter()
+		router, err := NewRouter(gorilla.NewRouter(muxRouter), Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
+			Openapi: &openapi3.T{
+				Info: &openapi3.Info{
+					Title:   "initial title",
+					Version: "1.0",
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		newInfo := &openapi3.Info{
+			Title:       "new title",
+			Version:     "2.0",
+			Description: "new description",
+		}
+
+		router.SetInfo(newInfo)
+
+		require.Equal(t, newInfo, router.swaggerSchema.Info)
+	})
+
+	t.Run("set info on host router", func(t *testing.T) {
+		muxRouter := mux.NewRouter()
+		router, err := NewRouter(gorilla.NewRouter(muxRouter), Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
+			Openapi: &openapi3.T{
+				Info: &openapi3.Info{
+					Title:   "initial title",
+					Version: "1.0",
+				},
+			},
+			FrameworkRouterFactory: func() apirouter.Router[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route] {
+				return gorilla.NewRouter(mux.NewRouter())
+			},
+		})
+		require.NoError(t, err)
+
+		hostRouter, err := router.Host("api.example.com")
+		require.NoError(t, err)
+
+		newInfo := &openapi3.Info{
+			Title:   "host title",
+			Version: "1.0",
+		}
+
+		hostRouter.SetInfo(newInfo)
+
+		require.Equal(t, newInfo, hostRouter.swaggerSchema.Info)
+		require.NotEqual(t, router.swaggerSchema.Info, hostRouter.swaggerSchema.Info)
+	})
+
+	t.Run("set info on subrouter", func(t *testing.T) {
+		muxRouter := mux.NewRouter()
+		router, err := NewRouter(gorilla.NewRouter(muxRouter), Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
+			Openapi: &openapi3.T{
+				Info: &openapi3.Info{
+					Title:   "initial title",
+					Version: "1.0",
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		subrouter, err := router.Group("/api")
+		require.NoError(t, err)
+
+		newInfo := &openapi3.Info{
+			Title:   "subrouter title",
+			Version: "1.0",
+		}
+
+		subrouter.SetInfo(newInfo)
+
+		require.Equal(t, newInfo, subrouter.swaggerSchema.Info)
+		require.Equal(t, newInfo, router.swaggerSchema.Info) // Should be same since subrouter shares schema
+	})
+
+	t.Run("validation fails with empty title", func(t *testing.T) {
+		muxRouter := mux.NewRouter()
+		router, err := NewRouter(gorilla.NewRouter(muxRouter), Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
+			Openapi: &openapi3.T{
+				Info: &openapi3.Info{
+					Title:   "initial title",
+					Version: "1.0",
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		err = router.GenerateAndExposeOpenapi()
+		require.NoError(t, err)
+
+		invalidInfo := &openapi3.Info{
+			Title:   "", // Empty title
+			Version: "1.0",
+		}
+
+		router.SetInfo(invalidInfo)
+
+		err = router.GenerateAndExposeOpenapi()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "value of title must be a non-empty string")
+	})
+
+	t.Run("validation fails with empty version", func(t *testing.T) {
+		muxRouter := mux.NewRouter()
+		router, err := NewRouter(gorilla.NewRouter(muxRouter), Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
+			Openapi: &openapi3.T{
+				Info: &openapi3.Info{
+					Title:   "initial title",
+					Version: "1.0",
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		err = router.GenerateAndExposeOpenapi()
+		require.NoError(t, err)
+
+		invalidInfo := &openapi3.Info{
+			Title:   "valid title",
+			Version: "", // Empty version
+		}
+
+		router.SetInfo(invalidInfo)
+
+		err = router.GenerateAndExposeOpenapi()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "value of version must be a non-empty string")
+	})
+
+	t.Run("nil info is a no-op on root router", func(t *testing.T) {
+		muxRouter := mux.NewRouter()
+		router, err := NewRouter(gorilla.NewRouter(muxRouter), Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
+			Openapi: &openapi3.T{
+				Info: &openapi3.Info{
+					Title:   "initial title",
+					Version: "1.0",
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		originalInfo := router.swaggerSchema.Info
+		result := router.SetInfo(nil)
+
+		require.Equal(t, originalInfo, router.swaggerSchema.Info)
+		require.Equal(t, router, result) // Verify method chaining still works
+	})
+
+	t.Run("nil info is a no-op on host router", func(t *testing.T) {
+		muxRouter := mux.NewRouter()
+		router, err := NewRouter(gorilla.NewRouter(muxRouter), Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
+			Openapi: &openapi3.T{
+				Info: &openapi3.Info{
+					Title:   "initial title",
+					Version: "1.0",
+				},
+			},
+			FrameworkRouterFactory: func() apirouter.Router[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route] {
+				return gorilla.NewRouter(mux.NewRouter())
+			},
+		})
+		require.NoError(t, err)
+
+		hostRouter, err := router.Host("api.example.com")
+		require.NoError(t, err)
+
+		originalInfo := hostRouter.swaggerSchema.Info
+		result := hostRouter.SetInfo(nil)
+
+		require.Equal(t, originalInfo, hostRouter.swaggerSchema.Info)
+		require.Equal(t, hostRouter, result) // Verify method chaining still works
+	})
+
+	t.Run("nil info is a no-op on subrouter", func(t *testing.T) {
+		muxRouter := mux.NewRouter()
+		router, err := NewRouter(gorilla.NewRouter(muxRouter), Options[gorilla.HandlerFunc, mux.MiddlewareFunc, gorilla.Route]{
+			Openapi: &openapi3.T{
+				Info: &openapi3.Info{
+					Title:   "initial title",
+					Version: "1.0",
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		subrouter, err := router.Group("/api")
+		require.NoError(t, err)
+
+		originalInfo := subrouter.swaggerSchema.Info
+		result := subrouter.SetInfo(nil)
+
+		require.Equal(t, originalInfo, subrouter.swaggerSchema.Info)
+		require.Equal(t, subrouter, result) // Verify method chaining still works
+	})
+}
+
 func TestGorillaHostRouting(t *testing.T) {
 	t.Run("generate docs on host router", func(t *testing.T) {
 		_, router := setupGorillaHostRouterTest(t)
