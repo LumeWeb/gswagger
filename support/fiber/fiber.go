@@ -65,8 +65,8 @@ func (r fiberRouter) Use(middleware ...HandlerFunc) {
 	useMiddleware(r.router, middleware...)
 }
 
-func (r fiberRouter) HasRoute(_ *http.Request) bool {
-	return false
+func (r fiberRouter) HasRoute(_ *http.Request) (bool, string) {
+	return false, ""
 }
 
 func (r fiberRouter) TransformPathToOasPath(path string) string {

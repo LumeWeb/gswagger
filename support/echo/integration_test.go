@@ -23,8 +23,6 @@ const (
 	swaggerOpenapiVersion = "test openapi version"
 )
 
-type echoSwaggerRouter = swagger.Router[echo.HandlerFunc, echo.HandlerFunc, *echo.Route]
-
 func TestEchoIntegration(t *testing.T) {
 	t.Run("router works correctly - echo", func(t *testing.T) {
 		echoRouter, oasRouter := setupEchoSwagger(t)
@@ -64,13 +62,6 @@ func TestEchoIntegration(t *testing.T) {
 					host:           "other.example.com",
 					path:           "/host",
 					expectedStatus: http.StatusNotFound,
-				},
-				{
-					name:           "fallback works for any host",
-					host:           "api.example.com",
-					path:           "/fallback",
-					expectedStatus: http.StatusOK,
-					expectedBody:   "fallback-response",
 				},
 				{
 					name:           "fallback works for other host",

@@ -23,15 +23,18 @@ func TestEchoRouter(t *testing.T) {
 
 		// Test matching route
 		req := httptest.NewRequest(http.MethodGet, "/test", nil)
-		require.True(t, ar.HasRoute(req))
+		exists, _ := ar.HasRoute(req)
+		require.True(t, exists)
 
 		// Test non-matching route
 		req = httptest.NewRequest(http.MethodGet, "/not-found", nil)
-		require.False(t, ar.HasRoute(req))
+		exists, _ = ar.HasRoute(req)
+		require.False(t, exists)
 
 		// Test matching method
 		req = httptest.NewRequest(http.MethodPost, "/test", nil)
-		require.False(t, ar.HasRoute(req))
+		exists, _ = ar.HasRoute(req)
+		require.False(t, exists)
 	})
 
 	t.Run("group with empty path prefix", func(t *testing.T) {
@@ -189,5 +192,75 @@ func TestEchoRouter(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, "some data", string(body))
 		})
+	})
+
+	t.Run("custom HTTP handler override", func(t *testing.T) {
+		echoRouter := echo.New()
+		ar := NewRouter(echoRouter)
+
+		// Add a normal route
+		ar.AddRoute(http.MethodGet, "/normal", func(c echo.Context) error {
+			return c.String(http.StatusOK, "normal route")
+		})
+
+		// Set up test cases
+		tests := []struct {
+			name           string
+			customHandler  http.Handler
+			path           string
+			expectedStatus int
+			expectedBody   string
+		}{
+			{
+				name: "no custom handler",
+				path: "/normal",
+				expectedStatus: http.StatusOK,
+				expectedBody: "normal route",
+			},
+			{
+				name: "custom handler takes precedence",
+				customHandler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusTeapot)
+					w.Write([]byte("custom handler"))
+				}),
+				path: "/normal",
+				expectedStatus: http.StatusTeapot,
+				expectedBody: "custom handler",
+			},
+			{
+				name: "custom handler handles 404s",
+				customHandler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.URL.Path == "/missing" {
+						w.WriteHeader(http.StatusOK)
+						w.Write([]byte("handled 404"))
+					} else {
+						w.WriteHeader(http.StatusNotFound)
+					}
+				}),
+				path: "/missing",
+				expectedStatus: http.StatusOK,
+				expectedBody: "handled 404",
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				// Set custom handler if specified
+				if tt.customHandler != nil {
+					ar.customServeHTTPHandler = tt.customHandler
+				} else {
+					ar.customServeHTTPHandler = nil
+				}
+
+				w := httptest.NewRecorder()
+				r := httptest.NewRequest(http.MethodGet, tt.path, nil)
+				echoRouter.ServeHTTP(w, r)
+
+				require.Equal(t, tt.expectedStatus, w.Result().StatusCode)
+				body, err := io.ReadAll(w.Result().Body)
+				require.NoError(t, err)
+				require.Equal(t, tt.expectedBody, string(body))
+			})
+		}
 	})
 }
