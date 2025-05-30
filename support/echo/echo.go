@@ -95,8 +95,7 @@ func (r echoRouter) Host(host string) apirouter.Router[echo.HandlerFunc, echo.Mi
 	}
 }
 
-
-func (r echoRouter) HasRoute(req *http.Request) bool {
+func (r echoRouter) HasRoute(req *http.Request) (bool, string) {
 	router := r.router.Router()
 	c := r.router.AcquireContext()
 	defer r.router.ReleaseContext(c)
@@ -106,7 +105,7 @@ func (r echoRouter) HasRoute(req *http.Request) bool {
 
 	handler := c.Handler()
 	if handler == nil {
-		return false
+		return false, ""
 	}
 
 	// Get the pointer values (uintptr) for comparison
@@ -116,10 +115,10 @@ func (r echoRouter) HasRoute(req *http.Request) bool {
 
 	// Compare the pointer values
 	if handlerPtr == handlerPtr404 || handlerPtr == handlerPtr405 {
-		return false
+		return false, ""
 	}
 
-	return true
+	return true, ""
 }
 
 func (r echoRouter) Use(middleware ...echo.MiddlewareFunc) {

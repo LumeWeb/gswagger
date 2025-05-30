@@ -72,6 +72,8 @@ type Router[HandlerFunc any, MiddlewareFunc any, Route any] struct {
 	frameworkRouterFactory func() apirouter.Router[HandlerFunc, MiddlewareFunc, Route]
 
 	isSubrouter bool
+
+	customServeHTTPHandler http.Handler
 }
 
 // Router returns the underlying router implementation for the current context (default, group, or host)
@@ -79,6 +81,22 @@ type Router[HandlerFunc any, MiddlewareFunc any, Route any] struct {
 // This allows accessing framework-specific functionality when needed.
 func (r *Router[HandlerFunc, MiddlewareFunc, Route]) Router() apirouter.Router[HandlerFunc, MiddlewareFunc, Route] {
 	return r.router
+}
+
+// GetRootRouter returns the root router instance that this router belongs to.
+// For the root router itself, it returns itself.
+func (r *Router[HandlerFunc, MiddlewareFunc, Route]) GetRootRouter() *Router[HandlerFunc, MiddlewareFunc, Route] {
+	return r.rootRouter
+}
+
+// GetHostRouter returns the host-specific router for the given host if it exists.
+// Returns nil if no router exists for the host.
+// Must be called on the root router instance.
+func (r *Router[HandlerFunc, MiddlewareFunc, Route]) GetHostRouter(host string) *Router[HandlerFunc, MiddlewareFunc, Route] {
+	if r.rootRouter != r {
+		return nil
+	}
+	return r.hostRouters[host]
 }
 
 // Use adds middleware to the router that will be executed for all routes
@@ -214,6 +232,9 @@ type Options[HandlerFunc any, MiddlewareFunc any, Route any] struct {
 	// FrameworkRouterFactory is a function that creates a new instance of the underlying framework router.
 	// This is required when using the Host() method to manage multiple host-specific routers.
 	FrameworkRouterFactory func() apirouter.Router[HandlerFunc, MiddlewareFunc, Route]
+	// CustomServeHTTPHandler is an optional http.Handler that can override request handling
+	// after swagger docs check but before standard routing.
+	CustomServeHTTPHandler http.Handler
 }
 
 func NewRouter[HandlerFunc, MiddlewareFunc, Route any](frameworkRouter apirouter.Router[HandlerFunc, MiddlewareFunc, Route], options Options[HandlerFunc, MiddlewareFunc, Route]) (*Router[HandlerFunc, MiddlewareFunc, Route], error) {
@@ -259,44 +280,41 @@ func NewRouter[HandlerFunc, MiddlewareFunc, Route any](frameworkRouter apirouter
 		rootRouter:             nil,
 		hostRouters:            make(map[string]*Router[HandlerFunc, MiddlewareFunc, Route]),
 		frameworkRouterFactory: options.FrameworkRouterFactory,
+		customServeHTTPHandler: options.CustomServeHTTPHandler,
 	}
 	root.rootRouter = root
 
 	return root, nil
 }
 
+// ServeHTTP handles HTTP requests with the following precedence:
+// 1. Checks for swagger documentation requests
+// 2. Calls customServeHTTPHandler if set
+// 3. Attempts host-specific routing if available  
+// 4. Falls back to root router
+// Returns 500 if called on non-root router
 func (r *Router[HandlerFunc, MiddlewareFunc, Route]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if r.rootRouter != r {
 		http.Error(w, "Internal Server Error: ServeHTTP called on non-root router", http.StatusInternalServerError)
 		return
 	}
 
+	// First check if this is a swagger documentation request
 	host := req.Host
-	var handlerRouter *Router[HandlerFunc, MiddlewareFunc, Route]
+	var targetRouter *Router[HandlerFunc, MiddlewareFunc, Route]
 
-	if hostRouter, ok := r.hostRouters[host]; ok && hostRouter != nil {
-		handlerRouter = hostRouter
+	// Select host router if exists, otherwise use root router
+	if hostRouter, ok := r.hostRouters[host]; ok {
+		targetRouter = hostRouter
 	} else {
-		handlerRouter = r.rootRouter
+		targetRouter = r
 	}
 
-	if handlerRouter == nil {
-		http.Error(w, "Not Found", http.StatusNotFound)
-		return
-	}
-
-	// Calculate the expected documentation paths without the router's pathPrefix
-	// This is needed because the request path won't include the router's prefix,
-	// but the documentation paths stored in the router do include it
-	expectedJSONDocPath := strings.TrimPrefix(handlerRouter.jsonDocumentationPath, handlerRouter.pathPrefix)
-	expectedYAMLDocPath := strings.TrimPrefix(handlerRouter.yamlDocumentationPath, handlerRouter.pathPrefix)
-
-	// Check if the request path matches the documentation paths (without the prefix)
-	// Example: If pathPrefix="/api/v1" and jsonDocumentationPath="/api/v1/documentation/json",
-	// then expectedJSONDocPath="/documentation/json" which matches the incoming request path
+	// Handle swagger documentation requests
+	expectedJSONDocPath := strings.TrimPrefix(targetRouter.jsonDocumentationPath, targetRouter.pathPrefix)
+	expectedYAMLDocPath := strings.TrimPrefix(targetRouter.yamlDocumentationPath, targetRouter.pathPrefix)
 	if req.URL.Path == expectedJSONDocPath || req.URL.Path == expectedYAMLDocPath {
-		// The underlying router (which was created with the prefix) will handle this correctly
-		if handler, ok := handlerRouter.router.Router().(http.Handler); ok {
+		if handler, ok := targetRouter.router.Router().(http.Handler); ok {
 			handler.ServeHTTP(w, req)
 			return
 		}
@@ -304,31 +322,22 @@ func (r *Router[HandlerFunc, MiddlewareFunc, Route]) ServeHTTP(w http.ResponseWr
 		return
 	}
 
-	// First try the host router if it exists
-	if handlerRouter != r.rootRouter {
-		if handlerRouter.router.HasRoute(req) {
-			if handler, ok := handlerRouter.router.Router().(http.Handler); ok {
-				handler.ServeHTTP(w, req)
-				return
-			}
-		}
+	// Call custom handler if set
+	if r.customServeHTTPHandler != nil {
+		r.customServeHTTPHandler.ServeHTTP(w, req)
+		return
 	}
 
-	// Then try root router
-	if r.rootRouter.router.HasRoute(req) {
-		if handler, ok := r.rootRouter.router.Router().(http.Handler); ok {
+	// Try host router first if available
+	if targetRouter != r {
+		if handler, ok := targetRouter.router.Router().(http.Handler); ok {
 			handler.ServeHTTP(w, req)
 			return
 		}
 	}
 
-	// If both failed, serve from host router if host matches, else fallback to root
-	if handlerRouter != r.rootRouter {
-		if handler, ok := handlerRouter.router.Router().(http.Handler); ok {
-			handler.ServeHTTP(w, req)
-			return
-		}
-	} else if handler, ok := r.rootRouter.router.Router().(http.Handler); ok {
+	// Fall back to root router
+	if handler, ok := r.router.Router().(http.Handler); ok {
 		handler.ServeHTTP(w, req)
 		return
 	}
