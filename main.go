@@ -393,13 +393,24 @@ func (r *Router[HandlerFunc, MiddlewareFunc, Route]) GenerateAndExposeOpenapi() 
 		}
 	}
 
+	// Resolve all reusable components after paths are processed
+	if err := ResolveAllComponents(r.swaggerSchema); err != nil {
+		return fmt.Errorf("%w: failed to resolve components: %v", ErrGenerateOAS, err)
+	}
+
+	// Marshal the schema to JSON
+	jsonSwagger, err := r.swaggerSchema.MarshalJSON()
+	if err != nil {
+		return fmt.Errorf("%w json marshal for %s: %s", ErrGenerateOAS, routerType, err)
+	}
+
 	// Validate the schema
 	if err := r.swaggerSchema.Validate(r.context); err != nil {
 		return fmt.Errorf("%w for %s: %s", ErrValidatingOAS, routerType, err)
 	}
 
 	// Marshal the schema to JSON
-	jsonSwagger, err := r.swaggerSchema.MarshalJSON()
+	jsonSwagger, err = r.swaggerSchema.MarshalJSON()
 	if err != nil {
 		return fmt.Errorf("%w json marshal for %s: %s", ErrGenerateOAS, routerType, err)
 	}
