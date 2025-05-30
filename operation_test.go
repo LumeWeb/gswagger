@@ -362,7 +362,7 @@ func TestProcessSchemaRefs(t *testing.T) {
 		rootSchema := getRootSchemaWithComponents(t)
 		parentSchema := openapi3.NewObjectSchema().WithPropertyRef("nested", &openapi3.SchemaRef{Ref: "#/components/schemas/NestedSchema"})
 
-		err := processSchemaRefs(rootSchema, parentSchema, make(visitedRefs))
+		err := processSchemaRefs(rootSchema, parentSchema)
 		require.NoError(t, err)
 
 		nestedSchemaRef := parentSchema.Properties["nested"]
@@ -378,7 +378,7 @@ func TestProcessSchemaRefs(t *testing.T) {
 		arraySchema := openapi3.NewArraySchema()
 		arraySchema.Items = &openapi3.SchemaRef{Ref: "#/components/schemas/ItemSchema"}
 
-		err := processSchemaRefs(rootSchema, arraySchema, make(visitedRefs))
+		err := processSchemaRefs(rootSchema, arraySchema)
 		require.NoError(t, err)
 
 		itemSchemaRef := arraySchema.Items
@@ -394,7 +394,7 @@ func TestProcessSchemaRefs(t *testing.T) {
 		objectSchema := openapi3.NewObjectSchema().WithAdditionalProperties(nil)
 		objectSchema.AdditionalProperties.Schema = openapi3.NewSchemaRef("#/components/schemas/AdditionalSchema", nil)
 
-		err := processSchemaRefs(rootSchema, objectSchema, make(visitedRefs))
+		err := processSchemaRefs(rootSchema, objectSchema)
 		require.NoError(t, err)
 
 		// Access the SchemaRef at the standard level
@@ -413,7 +413,7 @@ func TestProcessSchemaRefs(t *testing.T) {
 		allOfSchema := openapi3.NewAllOfSchema()
 		allOfSchema.AllOf = append(allOfSchema.AllOf, &openapi3.SchemaRef{Ref: "#/components/schemas/AllOfSchema"})
 
-		err := processSchemaRefs(rootSchema, allOfSchema, make(visitedRefs))
+		err := processSchemaRefs(rootSchema, allOfSchema)
 		require.NoError(t, err)
 
 		allOfRef := allOfSchema.AllOf[0]
@@ -428,7 +428,7 @@ func TestProcessSchemaRefs(t *testing.T) {
 		anyOfSchema := openapi3.NewAnyOfSchema()
 		anyOfSchema.AnyOf = append(anyOfSchema.AnyOf, &openapi3.SchemaRef{Ref: "#/components/schemas/AnyOfSchema"})
 
-		err := processSchemaRefs(rootSchema, anyOfSchema, make(visitedRefs))
+		err := processSchemaRefs(rootSchema, anyOfSchema)
 		require.NoError(t, err)
 
 		anyOfRef := anyOfSchema.AnyOf[0]
@@ -444,7 +444,7 @@ func TestProcessSchemaRefs(t *testing.T) {
 		oneOfSchema := openapi3.NewOneOfSchema()
 		oneOfSchema.OneOf = append(oneOfSchema.OneOf, &openapi3.SchemaRef{Ref: "#/components/schemas/OneOfSchema"})
 
-		err := processSchemaRefs(rootSchema, oneOfSchema, make(visitedRefs))
+		err := processSchemaRefs(rootSchema, oneOfSchema)
 		require.NoError(t, err)
 
 		oneOfRef := oneOfSchema.OneOf[0]
@@ -463,7 +463,7 @@ func TestProcessSchemaRefs(t *testing.T) {
 		}
 		parentSchema := openapi3.NewObjectSchema().WithPropertyRef("nested", &openapi3.SchemaRef{Ref: "#/components/schemas/MissingSchema"})
 
-		err := processSchemaRefs(rootSchema, parentSchema, make(visitedRefs))
+		err := processSchemaRefs(rootSchema, parentSchema)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), `schema property "#/components/schemas/MissingSchema": schema "MissingSchema" not found`)
 	})
@@ -496,7 +496,7 @@ func TestResolveComponentRef(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resolved, err := resolveComponentRef(rootSchema, tt.ref, make(visitedRefs))
+			resolved, err := resolveComponentRef(rootSchema, tt.ref)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -522,7 +522,7 @@ func TestResolveRequestBodyRefs(t *testing.T) {
 		op := Operation{openapi3.NewOperation()}
 		op.RequestBody = &openapi3.RequestBodyRef{Ref: "#/components/requestBodies/TestBody"}
 
-		err := op.resolveRequestBodyRefs(rootSchema, make(visitedRefs))
+		err := op.resolveRequestBodyRefs(rootSchema)
 		require.NoError(t, err)
 		require.NotNil(t, op.RequestBody.Value)
 		require.Equal(t, "Test Body", op.RequestBody.Value.Description)
@@ -534,7 +534,7 @@ func TestResolveRequestBodyRefs(t *testing.T) {
 		op := Operation{openapi3.NewOperation()}
 		op.RequestBody = nil
 
-		err := op.resolveRequestBodyRefs(rootSchema, make(visitedRefs))
+		err := op.resolveRequestBodyRefs(rootSchema)
 		require.NoError(t, err)
 		require.Nil(t, op.RequestBody)
 	})
@@ -544,7 +544,7 @@ func TestResolveRequestBodyRefs(t *testing.T) {
 		op := Operation{openapi3.NewOperation()}
 		op.RequestBody = &openapi3.RequestBodyRef{Value: openapi3.NewRequestBody().WithDescription("Direct Body")}
 
-		err := op.resolveRequestBodyRefs(rootSchema, make(visitedRefs))
+		err := op.resolveRequestBodyRefs(rootSchema)
 		require.NoError(t, err)
 		require.NotNil(t, op.RequestBody.Value)
 		require.Equal(t, "Direct Body", op.RequestBody.Value.Description)
@@ -560,7 +560,7 @@ func TestResolveRequestBodyRefs(t *testing.T) {
 		op := Operation{openapi3.NewOperation()}
 		op.RequestBody = &openapi3.RequestBodyRef{Ref: "#/components/requestBodies/MissingBody"}
 
-		err := op.resolveRequestBodyRefs(rootSchema, make(visitedRefs))
+		err := op.resolveRequestBodyRefs(rootSchema)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), `requestBody: requestBody "MissingBody" not found`)
 	})
@@ -570,7 +570,7 @@ func TestResolveRequestBodyRefs(t *testing.T) {
 		op := Operation{openapi3.NewOperation()}
 		op.RequestBody = &openapi3.RequestBodyRef{Ref: "#/invalid/TestBody"}
 
-		err := op.resolveRequestBodyRefs(rootSchema, make(visitedRefs))
+		err := op.resolveRequestBodyRefs(rootSchema)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), `requestBody: invalid reference format: "#/invalid/TestBody"`)
 	})
@@ -587,7 +587,7 @@ func TestResolveRequestBodyRefs(t *testing.T) {
 			}),
 		}
 
-		err := op.resolveRequestBodyRefs(rootSchema, make(visitedRefs))
+		err := op.resolveRequestBodyRefs(rootSchema)
 		require.NoError(t, err)
 		require.NotNil(t, op.RequestBody.Value)
 		mediaType := op.RequestBody.Value.Content["application/json"]
@@ -606,7 +606,7 @@ func TestResolveResponseRefs(t *testing.T) {
 		op.Responses = openapi3.NewResponses()
 		op.Responses.Set("200", &openapi3.ResponseRef{Ref: "#/components/responses/TestResponse"})
 
-		err := op.resolveResponseRefs(rootSchema, make(visitedRefs))
+		err := op.resolveResponseRefs(rootSchema)
 		require.NoError(t, err)
 		respRef := op.Responses.Value("200")
 		require.NotNil(t, respRef)
@@ -620,7 +620,7 @@ func TestResolveResponseRefs(t *testing.T) {
 		op := Operation{openapi3.NewOperation()}
 		op.Responses = nil
 
-		err := op.resolveResponseRefs(rootSchema, make(visitedRefs))
+		err := op.resolveResponseRefs(rootSchema)
 		require.NoError(t, err)
 		require.Nil(t, op.Responses)
 	})
@@ -631,7 +631,7 @@ func TestResolveResponseRefs(t *testing.T) {
 		op.Responses = openapi3.NewResponses()
 		op.Responses.Set("200", &openapi3.ResponseRef{Value: openapi3.NewResponse().WithDescription("Direct Response")})
 
-		err := op.resolveResponseRefs(rootSchema, make(visitedRefs))
+		err := op.resolveResponseRefs(rootSchema)
 		require.NoError(t, err)
 		respRef := op.Responses.Value("200")
 		require.NotNil(t, respRef)
@@ -650,7 +650,7 @@ func TestResolveResponseRefs(t *testing.T) {
 		op.Responses = openapi3.NewResponses()
 		op.Responses.Set("404", &openapi3.ResponseRef{Ref: "#/components/responses/MissingResponse"})
 
-		err := op.resolveResponseRefs(rootSchema, make(visitedRefs))
+		err := op.resolveResponseRefs(rootSchema)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), `response 404: response "MissingResponse" not found`)
 	})
@@ -661,7 +661,7 @@ func TestResolveResponseRefs(t *testing.T) {
 		op.Responses = openapi3.NewResponses()
 		op.Responses.Set("500", &openapi3.ResponseRef{Ref: "#/invalid/TestResponse"})
 
-		err := op.resolveResponseRefs(rootSchema, make(visitedRefs))
+		err := op.resolveResponseRefs(rootSchema)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), `response 500: invalid reference format: "#/invalid/TestResponse"`)
 	})
@@ -678,7 +678,7 @@ func TestResolveResponseRefs(t *testing.T) {
 			}),
 		})
 
-		err := op.resolveResponseRefs(rootSchema, make(visitedRefs))
+		err := op.resolveResponseRefs(rootSchema)
 		require.NoError(t, err)
 		respRef := op.Responses.Value("200")
 		require.NotNil(t, respRef)
@@ -699,7 +699,7 @@ func TestResolveParameterRefs(t *testing.T) {
 		op.Parameters = openapi3.NewParameters()
 		op.Parameters = append(op.Parameters, &openapi3.ParameterRef{Ref: "#/components/parameters/TestParameter"})
 
-		err := op.resolveParameterRefs(rootSchema, make(visitedRefs))
+		err := op.resolveParameterRefs(rootSchema)
 		require.NoError(t, err)
 		require.Len(t, op.Parameters, 1)
 		paramRef := op.Parameters[0]
@@ -714,7 +714,7 @@ func TestResolveParameterRefs(t *testing.T) {
 		op := Operation{openapi3.NewOperation()}
 		op.Parameters = nil
 
-		err := op.resolveParameterRefs(rootSchema, make(visitedRefs))
+		err := op.resolveParameterRefs(rootSchema)
 		require.NoError(t, err)
 		require.Nil(t, op.Parameters)
 	})
@@ -725,7 +725,7 @@ func TestResolveParameterRefs(t *testing.T) {
 		op.Parameters = openapi3.NewParameters()
 		op.Parameters = append(op.Parameters, &openapi3.ParameterRef{Value: &openapi3.Parameter{Name: "directParam", In: "header"}})
 
-		err := op.resolveParameterRefs(rootSchema, make(visitedRefs))
+		err := op.resolveParameterRefs(rootSchema)
 		require.NoError(t, err)
 		require.Len(t, op.Parameters, 1)
 		paramRef := op.Parameters[0]
@@ -745,7 +745,7 @@ func TestResolveParameterRefs(t *testing.T) {
 		op.Parameters = openapi3.NewParameters()
 		op.Parameters = append(op.Parameters, &openapi3.ParameterRef{Ref: "#/components/parameters/MissingParam"})
 
-		err := op.resolveParameterRefs(rootSchema, make(visitedRefs))
+		err := op.resolveParameterRefs(rootSchema)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), `parameter "#/components/parameters/MissingParam": parameter "MissingParam" not found`)
 	})
@@ -760,7 +760,7 @@ func TestResolveParameterRefs(t *testing.T) {
 		op.Parameters = openapi3.NewParameters()
 		op.Parameters = append(op.Parameters, &openapi3.ParameterRef{Ref: "#/invalid/TestParam"})
 
-		err := op.resolveParameterRefs(rootSchema, make(visitedRefs))
+		err := op.resolveParameterRefs(rootSchema)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), `parameter "#/invalid/TestParam": invalid reference format: "#/invalid/TestParam"`)
 	})
@@ -781,7 +781,7 @@ func TestResolveParameterRefs(t *testing.T) {
 			},
 		})
 
-		err := op.resolveParameterRefs(rootSchema, make(visitedRefs))
+		err := op.resolveParameterRefs(rootSchema)
 		require.NoError(t, err)
 		require.Len(t, op.Parameters, 1)
 		paramRef := op.Parameters[0]
@@ -807,7 +807,7 @@ func TestResolveParameterRefs(t *testing.T) {
 			},
 		})
 
-		err := op.resolveParameterRefs(rootSchema, make(visitedRefs))
+		err := op.resolveParameterRefs(rootSchema)
 		require.NoError(t, err)
 		require.Len(t, op.Parameters, 1)
 		paramRef := op.Parameters[0]
@@ -828,7 +828,7 @@ func TestResolveContentRefs(t *testing.T) {
 			"text/plain":       openapi3.NewMediaType().WithSchemaRef(&openapi3.SchemaRef{Ref: "#/$defs/MyDef"}), // Test jsonschema ref
 		}
 
-		err := resolveContentRefs(rootSchema, content, "test context", make(visitedRefs))
+		err := resolveContentRefs(rootSchema, content, "test context")
 		require.NoError(t, err)
 
 		jsonMediaType := content["application/json"]
@@ -852,7 +852,7 @@ func TestResolveContentRefs(t *testing.T) {
 			"application/json": openapi3.NewMediaType().WithSchema(openapi3.NewObjectSchema()),
 		}
 
-		err := resolveContentRefs(rootSchema, content, "test context", make(visitedRefs))
+		err := resolveContentRefs(rootSchema, content, "test context")
 		require.NoError(t, err)
 		require.NotNil(t, content["application/json"].Schema.Value)
 		require.Empty(t, content["application/json"].Schema.Ref) // Ref should remain empty if it was initially empty
@@ -868,7 +868,7 @@ func TestResolveContentRefs(t *testing.T) {
 			"application/json": openapi3.NewMediaType().WithSchemaRef(&openapi3.SchemaRef{Ref: "#/components/schemas/MissingSchema"}),
 		}
 
-		err := resolveContentRefs(rootSchema, content, "test context", make(visitedRefs))
+		err := resolveContentRefs(rootSchema, content, "test context")
 		require.Error(t, err)
 		require.Contains(t, err.Error(), `test context content "application/json" schema: schema "MissingSchema" not found`)
 	})
@@ -879,78 +879,156 @@ func TestResolveContentRefs(t *testing.T) {
 			"application/json": openapi3.NewMediaType().WithSchemaRef(&openapi3.SchemaRef{Ref: "#/"}),
 		}
 
-		err := resolveContentRefs(rootSchema, content, "test context", make(visitedRefs))
+		err := resolveContentRefs(rootSchema, content, "test context")
 		require.Error(t, err)
 		require.Contains(t, err.Error(), `test context content "application/json": could not determine component name from reference "#/"`)
 	})
 }
 
-func TestResolveReferences_CircularReferences(t *testing.T) {
-	t.Run("handle circular schema references", func(t *testing.T) {
-		rootSchema := &openapi3.T{
-			Components: &openapi3.Components{
-				Schemas: map[string]*openapi3.SchemaRef{
-					"PersonSchema": {
-						Value: openapi3.NewObjectSchema().WithPropertyRef("spouse",
-							&openapi3.SchemaRef{Ref: "#/components/schemas/PersonSchema"}),
-					},
+func TestResolveReferences_NestedContentSchemaRefs(t *testing.T) {
+	rootSchema := &openapi3.T{
+		Components: &openapi3.Components{
+			Schemas: map[string]*openapi3.SchemaRef{
+				"ParentSchema": {
+					Value: openapi3.NewObjectSchema().WithPropertyRef("child",
+						&openapi3.SchemaRef{Ref: "#/components/schemas/ChildSchema"}),
+				},
+				"ChildSchema": {
+					Value: openapi3.NewStringSchema(),
+				},
+			},
+		},
+	}
+
+	op := Operation{openapi3.NewOperation()}
+	op.RequestBody = &openapi3.RequestBodyRef{}
+	op.RequestBody.Value = openapi3.NewRequestBody()
+	op.RequestBody.Value.Content = openapi3.Content{
+		"application/json": openapi3.NewMediaType().WithSchemaRef(
+			&openapi3.SchemaRef{Ref: "#/components/schemas/ParentSchema"}),
+	}
+
+	err := op.ResolveReferences(rootSchema)
+	require.NoError(t, err)
+
+	mediaType := op.RequestBody.Value.Content["application/json"]
+	require.NotNil(t, mediaType.Schema.Value)
+
+	// Verify parent schema was resolved
+	require.Equal(t, "#/components/schemas/ParentSchema", mediaType.Schema.Ref)
+
+	// Verify child schema reference was resolved
+	childRef := mediaType.Schema.Value.Properties["child"]
+	require.NotNil(t, childRef)
+	require.NotNil(t, childRef.Value)
+	require.Equal(t, "#/components/schemas/ChildSchema", childRef.Ref)
+	require.Equal(t, openapi3.TypeString, childRef.Value.Type.Slice()[0])
+}
+
+func TestResolveAllComponents(t *testing.T) {
+	t.Run("resolves all component types", func(t *testing.T) {
+		rootSchema := getRootSchemaWithComponents(t)
+
+		// Add some nested references to test recursive resolution
+		registerTestSchema(rootSchema, "NestedSchema", openapi3.NewObjectSchema().WithPropertyRef("child", &openapi3.SchemaRef{Ref: "#/components/schemas/ChildSchema"}))
+		registerTestSchema(rootSchema, "ChildSchema", openapi3.NewStringSchema())
+
+		// Add parameter with schema reference
+		if rootSchema.Components.Parameters == nil {
+			rootSchema.Components.Parameters = make(map[string]*openapi3.ParameterRef)
+		}
+		rootSchema.Components.Parameters["ParamWithRef"] = &openapi3.ParameterRef{
+			Ref: "",
+			Value: &openapi3.Parameter{
+				Name: "param",
+				In:   "query",
+				Schema: &openapi3.SchemaRef{
+					Ref: "#/components/schemas/NestedSchema",
 				},
 			},
 		}
 
-		op := Operation{openapi3.NewOperation()}
-		op.RequestBody = &openapi3.RequestBodyRef{}
-		op.RequestBody.Value = openapi3.NewRequestBody()
-		op.RequestBody.Value.Content = openapi3.Content{
-			"application/json": openapi3.NewMediaType().WithSchemaRef(
-				&openapi3.SchemaRef{Ref: "#/components/schemas/PersonSchema"}),
+		// Add request body with content reference
+		if rootSchema.Components.RequestBodies == nil {
+			rootSchema.Components.RequestBodies = make(map[string]*openapi3.RequestBodyRef)
 		}
-
-		err := op.ResolveReferences(rootSchema)
-		require.NoError(t, err) // Should not hang or error with cycle detection
-
-		// Verify the circular reference is handled gracefully
-		mediaType := op.RequestBody.Value.Content["application/json"]
-		require.NotNil(t, mediaType.Schema.Value)
-		require.NotNil(t, mediaType.Schema.Value.Properties["spouse"])
-		require.Equal(t, "#/components/schemas/PersonSchema", mediaType.Schema.Value.Properties["spouse"].Ref)
-	})
-
-	t.Run("handle indirect circular references", func(t *testing.T) {
-		rootSchema := &openapi3.T{
-			Components: &openapi3.Components{
-				Schemas: map[string]*openapi3.SchemaRef{
-					"ParentSchema": {
-						Value: openapi3.NewObjectSchema().WithPropertyRef("child",
-							&openapi3.SchemaRef{Ref: "#/components/schemas/ChildSchema"}),
-					},
-					"ChildSchema": {
-						Value: openapi3.NewObjectSchema().WithPropertyRef("parent",
-							&openapi3.SchemaRef{Ref: "#/components/schemas/ParentSchema"}),
-					},
+		rootSchema.Components.RequestBodies["BodyWithRef"] = &openapi3.RequestBodyRef{
+			Ref: "",
+			Value: &openapi3.RequestBody{
+				Content: openapi3.Content{
+					"application/json": openapi3.NewMediaType().WithSchemaRef(&openapi3.SchemaRef{Ref: "#/components/schemas/NestedSchema"}),
 				},
 			},
 		}
 
-		op := Operation{openapi3.NewOperation()}
-		op.RequestBody = &openapi3.RequestBodyRef{}
-		op.RequestBody.Value = openapi3.NewRequestBody()
-		op.RequestBody.Value.Content = openapi3.Content{
-			"application/json": openapi3.NewMediaType().WithSchemaRef(
-				&openapi3.SchemaRef{Ref: "#/components/schemas/ParentSchema"}),
+		// Add response with content reference
+		if rootSchema.Components.Responses == nil {
+			rootSchema.Components.Responses = make(map[string]*openapi3.ResponseRef)
+		}
+		rootSchema.Components.Responses["ResponseWithRef"] = &openapi3.ResponseRef{
+			Ref: "",
+			Value: &openapi3.Response{
+				Content: openapi3.Content{
+					"application/json": openapi3.NewMediaType().WithSchemaRef(&openapi3.SchemaRef{Ref: "#/components/schemas/NestedSchema"}),
+				},
+			},
 		}
 
-		err := op.ResolveReferences(rootSchema)
+		err := ResolveAllComponents(rootSchema)
 		require.NoError(t, err)
 
-		mediaType := op.RequestBody.Value.Content["application/json"]
-		require.NotNil(t, mediaType.Schema.Value)
-		childRef := mediaType.Schema.Value.Properties["child"]
-		require.NotNil(t, childRef)
-		require.NotNil(t, childRef.Value)
-		require.Equal(t, "#/components/schemas/ChildSchema", childRef.Ref)
-		require.NotNil(t, childRef.Value.Properties["parent"])
-		require.Equal(t, "#/components/schemas/ParentSchema", childRef.Value.Properties["parent"].Ref)
+		// Verify schemas were resolved
+		schema := rootSchema.Components.Schemas["NestedSchema"]
+		require.NotNil(t, schema.Value)
+		require.NotNil(t, schema.Value.Properties["child"].Value)
+		require.Equal(t, openapi3.TypeString, schema.Value.Properties["child"].Value.Type.Slice()[0])
+
+		// Verify parameter was resolved
+		param := rootSchema.Components.Parameters["ParamWithRef"]
+		require.NotNil(t, param.Value.Schema.Value)
+		require.Equal(t, openapi3.TypeObject, param.Value.Schema.Value.Type.Slice()[0])
+
+		// Verify request body was resolved
+		body := rootSchema.Components.RequestBodies["BodyWithRef"]
+		require.NotNil(t, body.Value.Content["application/json"].Schema.Value)
+		require.Equal(t, openapi3.TypeObject, body.Value.Content["application/json"].Schema.Value.Type.Slice()[0])
+
+		// Verify response was resolved
+		resp := rootSchema.Components.Responses["ResponseWithRef"]
+		require.NotNil(t, resp.Value.Content["application/json"].Schema.Value)
+		require.Equal(t, openapi3.TypeObject, resp.Value.Content["application/json"].Schema.Value.Type.Slice()[0])
+	})
+
+	t.Run("handles empty components", func(t *testing.T) {
+		rootSchema := &openapi3.T{
+			Components: &openapi3.Components{},
+		}
+
+		err := ResolveAllComponents(rootSchema)
+		require.NoError(t, err)
+	})
+
+	t.Run("handles nil components", func(t *testing.T) {
+		rootSchema := &openapi3.T{}
+
+		err := ResolveAllComponents(rootSchema)
+		require.NoError(t, err)
+	})
+
+	t.Run("handles missing referenced components", func(t *testing.T) {
+		rootSchema := &openapi3.T{
+			Components: &openapi3.Components{
+				Schemas: map[string]*openapi3.SchemaRef{
+					"BadRef": {
+						Ref: "#/components/schemas/MissingSchema",
+					},
+				},
+			},
+		}
+
+		err := ResolveAllComponents(rootSchema)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "schemas \"BadRef\": schema \"MissingSchema\" not found")
 	})
 }
 
