@@ -86,7 +86,7 @@ func (r *Router[HandlerFunc, MiddlewareFunc, Route]) Router() apirouter.Router[H
 // SwaggerSchema returns the OpenAPI schema associated with this router instance.
 // For host-specific routers, this returns the host's isolated schema.
 // For subrouters, this returns the shared schema from their parent.
-func (r *Router[HandlerFunc, MiddlewareFunc, Route]) SwaggerSchema() *openapi3.T {
+func (r *Router[HandlerFunc, MiddlewareFunc, Route]) GetSwaggerSchema() *openapi3.T {
 	return r.swaggerSchema
 }
 
