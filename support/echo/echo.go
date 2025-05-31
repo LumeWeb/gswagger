@@ -43,8 +43,8 @@ func (r echoRouter) TransformPathToOasPath(path string) string {
 	return apirouter.TransformPathParamsWithColon(path)
 }
 
-func (r echoRouter) Router() any {
-	if r.group != nil {
+func (r echoRouter) Router(group bool) any {
+	if r.group != nil && group {
 		return r.group
 	}
 	return r.router
