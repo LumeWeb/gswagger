@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/invopop/jsonschema"
 	"net/http"
 	"path"
 	"strings"
@@ -74,6 +75,8 @@ type Router[HandlerFunc any, MiddlewareFunc any, Route any] struct {
 	isSubrouter bool
 
 	customServeHTTPHandler http.Handler
+
+	reflectorOptions *jsonschema.Reflector
 }
 
 // Router returns the underlying router implementation for the current context (default, group, or host)
@@ -150,6 +153,7 @@ func (r *Router[HandlerFunc, MiddlewareFunc, Route]) Group(pathPrefix string) (*
 		host:                  r.host,                              // Inherit host from parent
 		rootRouter:            r.rootRouter,                        // Reference the root router
 		hostRouters:           r.rootRouter.hostRouters,            // Share host routers map
+		reflectorOptions:      r.reflectorOptions,                  // Share reflector options
 		isSubrouter:           true,
 	}, nil
 }
@@ -199,7 +203,8 @@ func (r *Router[HandlerFunc, MiddlewareFunc, Route]) Host(host string) (*Router[
 		pathPrefix:            "",
 		host:                  host,
 		rootRouter:            r,
-		hostRouters:           r.hostRouters, // Share the host routers map
+		hostRouters:           r.hostRouters,      // Share the host routers map
+		reflectorOptions:      r.reflectorOptions, // Share reflector options
 	}
 
 	r.hostRouters[host] = hostRouter
@@ -243,6 +248,8 @@ type Options[HandlerFunc any, MiddlewareFunc any, Route any] struct {
 	// CustomServeHTTPHandler is an optional http.Handler that can override request handling
 	// after swagger docs check but before standard routing.
 	CustomServeHTTPHandler http.Handler
+	// ReflectorOptions provides configuration for the jsonschema.Reflector used to generate schemas
+	ReflectorOptions *jsonschema.Reflector
 }
 
 func NewRouter[HandlerFunc, MiddlewareFunc, Route any](frameworkRouter apirouter.Router[HandlerFunc, MiddlewareFunc, Route], options Options[HandlerFunc, MiddlewareFunc, Route]) (*Router[HandlerFunc, MiddlewareFunc, Route], error) {
@@ -289,6 +296,7 @@ func NewRouter[HandlerFunc, MiddlewareFunc, Route any](frameworkRouter apirouter
 		hostRouters:            make(map[string]*Router[HandlerFunc, MiddlewareFunc, Route]),
 		frameworkRouterFactory: options.FrameworkRouterFactory,
 		customServeHTTPHandler: options.CustomServeHTTPHandler,
+		reflectorOptions:       options.ReflectorOptions,
 	}
 	root.rootRouter = root
 

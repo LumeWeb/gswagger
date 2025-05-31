@@ -371,6 +371,17 @@ func (r Router[_, _, _]) getSchemaFromInterface(v interface{}, allowAdditionalPr
 		AllowAdditionalProperties: allowAdditionalProperties,
 		Anonymous:                 true,
 	}
+	if r.reflectorOptions != nil {
+		reflector = &jsonschema.Reflector{
+			DoNotReference:            r.reflectorOptions.DoNotReference,
+			AllowAdditionalProperties: allowAdditionalProperties,
+			Anonymous:                 r.reflectorOptions.Anonymous,
+			Mapper:                    r.reflectorOptions.Mapper,
+			ExpandedStruct:            r.reflectorOptions.ExpandedStruct,
+			FieldNameTag:              r.reflectorOptions.FieldNameTag,
+			RequiredFromJSONSchemaTags: r.reflectorOptions.RequiredFromJSONSchemaTags,
+		}
+	}
 
 	// Reflect the Go type into a jsonschema.Schema
 	jsonSchema := reflector.Reflect(v)
