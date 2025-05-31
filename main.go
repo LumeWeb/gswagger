@@ -187,6 +187,7 @@ func (r *Router[HandlerFunc, MiddlewareFunc, Route]) Host(host string) (*Router[
 		Info:    r.swaggerSchema.Info,
 		OpenAPI: r.swaggerSchema.OpenAPI,
 		Paths:   &openapi3.Paths{},
+		Servers: r.swaggerSchema.Servers,
 	}
 
 	hostRouter := &Router[HandlerFunc, MiddlewareFunc, Route]{
