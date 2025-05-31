@@ -21,11 +21,11 @@ var (
 )
 
 func GetRouter[T any, H any, M any, R any](r apirouter.Router[H, M, R]) T {
-	if r == nil || r.Router() == nil {
+	if r == nil || r.Router(true) == nil {
 		var zero T
 		return zero // Return zero value for the type T
 	}
-	return r.Router().(T)
+	return r.Router(true).(T)
 }
 
 const (
@@ -290,7 +290,7 @@ func NewRouter[HandlerFunc, MiddlewareFunc, Route any](frameworkRouter apirouter
 // ServeHTTP handles HTTP requests with the following precedence:
 // 1. Checks for swagger documentation requests
 // 2. Calls customServeHTTPHandler if set
-// 3. Attempts host-specific routing if available  
+// 3. Attempts host-specific routing if available
 // 4. Falls back to root router
 // Returns 500 if called on non-root router
 func (r *Router[HandlerFunc, MiddlewareFunc, Route]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
@@ -314,7 +314,7 @@ func (r *Router[HandlerFunc, MiddlewareFunc, Route]) ServeHTTP(w http.ResponseWr
 	expectedJSONDocPath := strings.TrimPrefix(targetRouter.jsonDocumentationPath, targetRouter.pathPrefix)
 	expectedYAMLDocPath := strings.TrimPrefix(targetRouter.yamlDocumentationPath, targetRouter.pathPrefix)
 	if req.URL.Path == expectedJSONDocPath || req.URL.Path == expectedYAMLDocPath {
-		if handler, ok := targetRouter.router.Router().(http.Handler); ok {
+		if handler, ok := targetRouter.router.Router(true).(http.Handler); ok {
 			handler.ServeHTTP(w, req)
 			return
 		}
@@ -330,14 +330,14 @@ func (r *Router[HandlerFunc, MiddlewareFunc, Route]) ServeHTTP(w http.ResponseWr
 
 	// Try host router first if available
 	if targetRouter != r {
-		if handler, ok := targetRouter.router.Router().(http.Handler); ok {
+		if handler, ok := targetRouter.router.Router(true).(http.Handler); ok {
 			handler.ServeHTTP(w, req)
 			return
 		}
 	}
 
 	// Fall back to root router
-	if handler, ok := r.router.Router().(http.Handler); ok {
+	if handler, ok := r.router.Router(true).(http.Handler); ok {
 		handler.ServeHTTP(w, req)
 		return
 	}
