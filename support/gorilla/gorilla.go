@@ -52,7 +52,7 @@ func (r gorillaRouter) TransformPathToOasPath(path string) string {
 	return path
 }
 
-func (r gorillaRouter) Router() any {
+func (r gorillaRouter) Router(_ bool) any {
 	return r.router
 }
 

@@ -416,6 +416,10 @@ func (r Router[_, _, _]) getSchemaFromInterface(v interface{}, allowAdditionalPr
 		}
 	}
 
+	if jsonSchema.Type == "array" && jsonSchema.Definitions != nil {
+		jsonSchema.Definitions = nil
+	}
+
 	// Check if the reflected schema has a $ref
 	if jsonSchema.Ref != "" {
 		return openapi3.NewSchemaRef(jsonSchema.Ref, nil), nil
