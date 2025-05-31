@@ -15,7 +15,7 @@ type fiberRouter struct {
 	router fiber.Router // Can be *fiber.App or fiber.Router (from Group)
 }
 
-func (r fiberRouter) Router() any {
+func (r fiberRouter) Router(_ bool) any {
 	return r.router
 }
 
