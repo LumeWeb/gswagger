@@ -373,12 +373,13 @@ func (r Router[_, _, _]) getSchemaFromInterface(v interface{}, allowAdditionalPr
 	}
 	if r.reflectorOptions != nil {
 		reflector = &jsonschema.Reflector{
-			DoNotReference:            r.reflectorOptions.DoNotReference,
-			AllowAdditionalProperties: allowAdditionalProperties,
-			Anonymous:                 r.reflectorOptions.Anonymous,
-			Mapper:                    r.reflectorOptions.Mapper,
-			ExpandedStruct:            r.reflectorOptions.ExpandedStruct,
-			FieldNameTag:              r.reflectorOptions.FieldNameTag,
+			DoNotReference:             r.reflectorOptions.DoNotReference,
+			AllowAdditionalProperties:  allowAdditionalProperties,
+			Anonymous:                  r.reflectorOptions.Anonymous,
+			Mapper:                     r.reflectorOptions.Mapper,
+			Namer:                      r.reflectorOptions.Namer,
+			ExpandedStruct:             r.reflectorOptions.ExpandedStruct,
+			FieldNameTag:               r.reflectorOptions.FieldNameTag,
 			RequiredFromJSONSchemaTags: r.reflectorOptions.RequiredFromJSONSchemaTags,
 		}
 	}
