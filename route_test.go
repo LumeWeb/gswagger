@@ -8,6 +8,7 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/gorilla/mux"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.lumeweb.com/gswagger/support/gorilla"
 	"go.lumeweb.com/gswagger/support/testutils" // Import the new package
@@ -1143,6 +1144,116 @@ func TestResolveResponsesSchema(t *testing.T) {
 				require.NoError(t, err)
 			}
 			require.Equal(t, test.expectedErr, err)
+		})
+	}
+}
+
+// Test types for cycle detection
+type Node struct {
+	Next *Node
+}
+
+type Parent struct {
+	Child *Child
+}
+type Child struct {
+	Parent *Parent
+}
+
+type User struct {
+	Name   string
+	Groups []*Group
+}
+type Group struct {
+	Name  string
+	Users []*User
+}
+
+type A struct {
+	B *B
+}
+type B struct {
+	C *C
+}
+type C struct {
+	A *A
+}
+
+
+func TestCycleDetection(t *testing.T) {
+
+	tests := []struct {
+		name        string
+		input       any
+		expectError bool
+	}{
+		{
+			name:        "no cycle",
+			input:       struct{ Name string }{Name: "test"},
+			expectError: false,
+		},
+		{
+			name: "simple cycle",
+			input: func() *Node {
+				n := &Node{}
+				n.Next = n
+				return n
+			}(),
+			expectError: true,
+		},
+		{
+			name:        "nested cycle",
+			input:       &Parent{Child: &Child{Parent: &Parent{}}},
+			expectError: true,
+		},
+		{
+			name: "complex cycle with slices",
+			input: &User{
+				Groups: []*Group{
+					{
+						Users: []*User{
+							{Name: "test"},
+						},
+					},
+				},
+			},
+			expectError: true,
+		},
+		{
+			name: "indirect cycle through multiple types",
+			input: &A{
+				B: &B{
+					C: &C{
+						A: &A{},
+					},
+				},
+			},
+			expectError: true,
+		},
+		{
+			name: "primitive types don't trigger cycles",
+			input: struct {
+				Name string
+				Age  int
+			}{
+				Name: "test",
+				Age:  30,
+			},
+			expectError: false,
+		},
+	}
+
+	router := setupRouter(t)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := router.getSchemaFromInterface(tt.input, false)
+			if tt.expectError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "cycle detected in type graph")
+				t.Logf("Cycle error message:\n%s", err.Error())
+			} else {
+				require.NoError(t, err)
+			}
 		})
 	}
 }
