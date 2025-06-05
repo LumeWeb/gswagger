@@ -372,6 +372,20 @@ func isPrimitiveType(v any) bool {
 	}
 }
 
+func isProblematicEmbeddedType(field reflect.StructField, parentType reflect.Type) bool {
+	if !field.Anonymous {
+		return false
+	}
+
+	fieldType := field.Type
+	if fieldType.Kind() == reflect.Ptr {
+		fieldType = fieldType.Elem()
+	}
+
+	// Only flag direct self-references
+	return fieldType == parentType
+}
+
 type typeTrace struct {
 	PkgPath  string // Package import path
 	TypeName string // Type name
@@ -379,7 +393,7 @@ type typeTrace struct {
 	File     string
 	Line     int
 	Field    string // For struct fields
-	Method   string // For interface methods  
+	Method   string // For interface methods
 	MapKey   string // For map keys
 	SliceIdx int    // For slice/array indices
 }
@@ -389,17 +403,20 @@ func (r Router[_, _, _]) checkForCycles(v any, path []typeTrace) error {
 		return nil
 	}
 
-	// Get the original value and type
 	origVal := reflect.ValueOf(v)
+	if !origVal.IsValid() {
+		return nil
+	}
+
 	t := origVal.Type()
-	file := ""
-	line := 0
-	
-	// Only try to get source location for pointer types
-	if origVal.Kind() == reflect.Ptr {
-		if pc := origVal.Pointer(); pc != 0 {
-			if f := runtime.FuncForPC(pc); f != nil {
-				file, line = f.FileLine(pc)
+
+	// Check for problematic embedded types before proceeding
+	if origVal.Kind() == reflect.Struct {
+		for i := 0; i < origVal.NumField(); i++ {
+			field := t.Field(i)
+			if isProblematicEmbeddedType(field, t) {
+				return fmt.Errorf("invalid schema: embedded type %s creates an infinite recursion in type %s",
+					field.Type, t)
 			}
 		}
 	}
@@ -413,11 +430,42 @@ func (r Router[_, _, _]) checkForCycles(v any, path []typeTrace) error {
 		val = val.Elem()
 	}
 
+	// Skip cycle checking for invalid/zero values after dereferencing
+	if !val.IsValid() {
+		return nil
+	}
+
+	file := ""
+	line := 0
+
+	// Only try to get source location for pointer types
+	if origVal.Kind() == reflect.Ptr {
+		if pc := origVal.Pointer(); pc != 0 {
+			if f := runtime.FuncForPC(pc); f != nil {
+				file, line = f.FileLine(pc)
+			}
+		}
+	}
+
+	// Get the dereferenced value if it's a pointer
+	val = origVal
+	if val.Kind() == reflect.Ptr {
+		if val.IsNil() {
+			return nil
+		}
+		val = val.Elem()
+	}
+
+	// Skip cycle checking for invalid/zero values after dereferencing
+	if !val.IsValid() {
+		return nil
+	}
+
 	// Check for cycles
 	for _, entry := range path {
 		if entry.Type == t {
 			var trace strings.Builder
-				
+
 			// Build cycle summary
 			trace.WriteString("cycle detected in type graph:\n")
 			trace.WriteString("Cycle path summary:\n")
@@ -428,7 +476,7 @@ func (r Router[_, _, _]) checkForCycles(v any, path []typeTrace) error {
 				trace.WriteString(fmt.Sprintf("%s.%s", path[i].PkgPath, path[i].TypeName))
 			}
 			trace.WriteString(fmt.Sprintf(" -> %s.%s\n\n", t.PkgPath(), t.Name()))
-				
+
 			// Build detailed trace
 			trace.WriteString("Full trace with field/method chain:\n")
 			for i, entry := range path {
@@ -455,7 +503,7 @@ func (r Router[_, _, _]) checkForCycles(v any, path []typeTrace) error {
 				trace.WriteString(fmt.Sprintf(" (%s:%d)", file, line))
 			}
 			trace.WriteString("\n")
-				
+
 			return fmt.Errorf(trace.String())
 		}
 	}
@@ -475,16 +523,32 @@ func (r Router[_, _, _]) checkForCycles(v any, path []typeTrace) error {
 	case reflect.Struct:
 		t := val.Type() // Get type from the dereferenced value
 		for i := 0; i < val.NumField(); i++ {
-			field := val.Field(i)
+			field := t.Field(i)
+			// Skip unexported fields (both from other packages and same package)
+			if field.PkgPath != "" || !field.IsExported() {
+				continue
+			}
+
+			// Check for embedded cycles before any reflection operations
+			fieldType := field.Type
+			if fieldType.Kind() == reflect.Ptr {
+				fieldType = fieldType.Elem()
+			}
+			// Skip embedded fields of the same type (or pointer to same type) to prevent infinite recursion
+			if field.Anonymous && fieldType == t {
+				continue
+			}
+
+			fieldVal := val.Field(i)
 			fieldTrace := typeTrace{
 				PkgPath:  t.PkgPath(),
 				TypeName: t.Name(),
 				Type:     t,
 				File:     file,
 				Line:     line,
-				Field:    t.Field(i).Name,
+				Field:    field.Name,
 			}
-			if err := r.checkForCycles(field.Interface(), append(newPath, fieldTrace)); err != nil {
+			if err := r.checkForCycles(fieldVal.Interface(), append(newPath, fieldTrace)); err != nil {
 				return err
 			}
 		}
@@ -549,6 +613,20 @@ func (r Router[_, _, _]) getSchemaFromInterface(v any, allowAdditionalProperties
 	// First check for cycles in the type graph
 	if err := r.checkForCycles(v, nil); err != nil {
 		return nil, fmt.Errorf("invalid schema: %w", err)
+	}
+
+	// If we detect any embedded struct, abort immediately as it's potentially cyclic
+	val := reflect.ValueOf(v)
+	if val.Kind() == reflect.Ptr {
+		val = val.Elem()
+	}
+	if val.Kind() == reflect.Struct {
+		for i := 0; i < val.NumField(); i++ {
+			field := val.Type().Field(i)
+			if field.Anonymous {
+				return nil, fmt.Errorf("invalid schema: embedded struct %s detected - potential infinite recursion", field.Type)
+			}
+		}
 	}
 
 	reflector := &jsonschema.Reflector{
