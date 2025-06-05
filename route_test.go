@@ -1179,13 +1179,34 @@ type C struct {
 	A *A
 }
 
-
 func TestCycleDetection(t *testing.T) {
+	type UnexportedCycle struct {
+		name string
+		self *UnexportedCycle
+	}
+
+	type MixedFields struct {
+		Name     string
+		Exported *MixedFields
+		hidden   *MixedFields // unexported
+	}
+
+	type EmbeddedCycle struct {
+		*EmbeddedCycle // embedded pointer creates cycle
+		Name           string
+	}
+
+	type IndirectUnexported struct {
+		hidden struct {
+			parent *IndirectUnexported
+		}
+	}
 
 	tests := []struct {
-		name        string
-		input       any
-		expectError bool
+		name          string
+		input         any
+		expectError   bool
+		errorContains string // Optional expected error substring
 	}{
 		{
 			name:        "no cycle",
@@ -1241,6 +1262,59 @@ func TestCycleDetection(t *testing.T) {
 			},
 			expectError: false,
 		},
+		{
+			name: "unexported fields are skipped",
+			input: &UnexportedCycle{
+				name: "test",
+				self: &UnexportedCycle{},
+			},
+			expectError: false,
+		},
+		{
+			name: "mixed exported/unexported fields",
+			input: &MixedFields{
+				Name:     "test",
+				Exported: &MixedFields{},
+				hidden:   &MixedFields{},
+			},
+			expectError: true, // Should error since there's a cycle through Exported
+		},
+		{
+			name:          "embedded cycle",
+			input:         &EmbeddedCycle{},
+			expectError:   true,
+			errorContains: "embedded struct *swagger.EmbeddedCycle detected - potential infinite recursion",
+		},
+		{
+			name: "indirect embedded cycle",
+			input: &struct {
+				*Parent // Embedded type that will cycle
+			}{},
+			expectError:   true,
+			errorContains: "embedded struct *swagger.Parent detected - potential infinite recursion",
+		},
+		{
+			name: "indirect unexported cycle",
+			input: &IndirectUnexported{
+				hidden: struct {
+					parent *IndirectUnexported
+				}{
+					parent: &IndirectUnexported{},
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "map with cyclic values",
+			input: map[string]interface{}{
+				"a": map[string]interface{}{
+					"b": map[string]interface{}{
+						"c": nil, // Will be set to point back to root
+					},
+				},
+			},
+			expectError: true,
+		},
 	}
 
 	router := setupRouter(t)
@@ -1249,8 +1323,12 @@ func TestCycleDetection(t *testing.T) {
 			_, err := router.getSchemaFromInterface(tt.input, false)
 			if tt.expectError {
 				require.Error(t, err)
-				assert.Contains(t, err.Error(), "cycle detected in type graph")
-				t.Logf("Cycle error message:\n%s", err.Error())
+				if tt.errorContains != "" {
+					assert.Contains(t, err.Error(), tt.errorContains)
+				} else {
+					assert.Contains(t, err.Error(), "cycle detected in type graph", "Expected cycle error not found")
+				}
+				t.Logf("Error message:\n%s", err.Error())
 			} else {
 				require.NoError(t, err)
 			}
