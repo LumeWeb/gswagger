@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"reflect"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -64,8 +66,8 @@ type Content map[string]Schema
 
 // Schema defines the structure of request/response data
 type Schema struct {
-	Value                     interface{} // Go type to generate schema from
-	AllowAdditionalProperties bool        // Whether to allow extra fields
+	Value                     any  // Go type to generate schema from
+	AllowAdditionalProperties bool // Whether to allow extra fields
 }
 
 // Parameter defines an API parameter (path, query, header, cookie)
@@ -104,7 +106,7 @@ type SecurityRequirement map[string][]string
 
 // Definitions provides OpenAPI schema definitions for a route
 type Definitions struct {
-	Extensions  map[string]interface{}         // OpenAPI extensions
+	Extensions  map[string]any                 // OpenAPI extensions
 	Tags        []string                       // Logical grouping tags
 	Summary     string                         // Short summary
 	Description string                         // Detailed description
@@ -361,9 +363,192 @@ func (r Router[_, _, _]) resolveResponsesSchema(responses map[int]ContentValue, 
 	return nil
 }
 
-func (r Router[_, _, _]) getSchemaFromInterface(v interface{}, allowAdditionalProperties bool) (*openapi3.SchemaRef, error) {
+func isPrimitiveType(v any) bool {
+	switch v.(type) {
+	case string, bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+		return true
+	default:
+		return false
+	}
+}
+
+type typeTrace struct {
+	PkgPath  string // Package import path
+	TypeName string // Type name
+	Type     reflect.Type
+	File     string
+	Line     int
+	Field    string // For struct fields
+	Method   string // For interface methods  
+	MapKey   string // For map keys
+	SliceIdx int    // For slice/array indices
+}
+
+func (r Router[_, _, _]) checkForCycles(v any, path []typeTrace) error {
+	if isPrimitiveType(v) {
+		return nil
+	}
+
+	// Get the original value and type
+	origVal := reflect.ValueOf(v)
+	t := origVal.Type()
+	file := ""
+	line := 0
+	
+	// Only try to get source location for pointer types
+	if origVal.Kind() == reflect.Ptr {
+		if pc := origVal.Pointer(); pc != 0 {
+			if f := runtime.FuncForPC(pc); f != nil {
+				file, line = f.FileLine(pc)
+			}
+		}
+	}
+
+	// Get the dereferenced value if it's a pointer
+	val := origVal
+	if val.Kind() == reflect.Ptr {
+		if val.IsNil() {
+			return nil
+		}
+		val = val.Elem()
+	}
+
+	// Check for cycles
+	for _, entry := range path {
+		if entry.Type == t {
+			var trace strings.Builder
+				
+			// Build cycle summary
+			trace.WriteString("cycle detected in type graph:\n")
+			trace.WriteString("Cycle path summary:\n")
+			for i := 0; i < len(path); i++ {
+				if i > 0 {
+					trace.WriteString(" -> ")
+				}
+				trace.WriteString(fmt.Sprintf("%s.%s", path[i].PkgPath, path[i].TypeName))
+			}
+			trace.WriteString(fmt.Sprintf(" -> %s.%s\n\n", t.PkgPath(), t.Name()))
+				
+			// Build detailed trace
+			trace.WriteString("Full trace with field/method chain:\n")
+			for i, entry := range path {
+				trace.WriteString(fmt.Sprintf("  %d: %s.%s", i, entry.PkgPath, entry.TypeName))
+				if entry.File != "" {
+					trace.WriteString(fmt.Sprintf(" (%s:%d)", entry.File, entry.Line))
+				}
+				if entry.Field != "" {
+					trace.WriteString(fmt.Sprintf(" via field %q", entry.Field))
+				}
+				if entry.Method != "" {
+					trace.WriteString(fmt.Sprintf(" via method %q", entry.Method))
+				}
+				if entry.MapKey != "" {
+					trace.WriteString(fmt.Sprintf(" via map key %q", entry.MapKey))
+				}
+				if entry.SliceIdx >= 0 {
+					trace.WriteString(fmt.Sprintf(" via slice index %d", entry.SliceIdx))
+				}
+				trace.WriteString("\n")
+			}
+			trace.WriteString(fmt.Sprintf("  %d: %s.%s", len(path), t.PkgPath(), t.Name()))
+			if file != "" {
+				trace.WriteString(fmt.Sprintf(" (%s:%d)", file, line))
+			}
+			trace.WriteString("\n")
+				
+			return fmt.Errorf(trace.String())
+		}
+	}
+
+	// Add current type to path with package info
+	currentTrace := typeTrace{
+		PkgPath:  t.PkgPath(),
+		TypeName: t.Name(),
+		Type:     t,
+		File:     file,
+		Line:     line,
+	}
+	newPath := append(path, currentTrace)
+
+	// Recursively check struct fields and interface methods
+	switch val.Kind() {
+	case reflect.Struct:
+		t := val.Type() // Get type from the dereferenced value
+		for i := 0; i < val.NumField(); i++ {
+			field := val.Field(i)
+			fieldTrace := typeTrace{
+				PkgPath:  t.PkgPath(),
+				TypeName: t.Name(),
+				Type:     t,
+				File:     file,
+				Line:     line,
+				Field:    t.Field(i).Name,
+			}
+			if err := r.checkForCycles(field.Interface(), append(newPath, fieldTrace)); err != nil {
+				return err
+			}
+		}
+	case reflect.Interface:
+		for i := 0; i < val.NumMethod(); i++ {
+			method := val.Method(i)
+			methodTrace := typeTrace{
+				PkgPath:  t.PkgPath(),
+				TypeName: t.Name(),
+				Type:     t,
+				File:     file,
+				Line:     line,
+				Method:   t.Method(i).Name,
+			}
+			if err := r.checkForCycles(method.Type(), append(newPath, methodTrace)); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Recursively check slice/array elements
+	if val.Kind() == reflect.Slice || val.Kind() == reflect.Array {
+		for i := 0; i < val.Len(); i++ {
+			elemTrace := typeTrace{
+				Type:     t,
+				File:     file,
+				Line:     line,
+				SliceIdx: i,
+			}
+			if err := r.checkForCycles(val.Index(i).Interface(), append(newPath, elemTrace)); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Recursively check map values
+	if val.Kind() == reflect.Map {
+		for _, key := range val.MapKeys() {
+			keyTrace := typeTrace{
+				Type:   t,
+				File:   file,
+				Line:   line,
+				MapKey: fmt.Sprintf("%v", key.Interface()),
+			}
+			if err := r.checkForCycles(val.MapIndex(key).Interface(), append(newPath, keyTrace)); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Note: Generic type parameters are not directly accessible via reflection
+	// The cycle detection for regular fields above will catch cycles in generic types
+
+	return nil
+}
+
+func (r Router[_, _, _]) getSchemaFromInterface(v any, allowAdditionalProperties bool) (*openapi3.SchemaRef, error) {
 	if v == nil {
 		return &openapi3.SchemaRef{}, nil
+	}
+
+	// First check for cycles in the type graph
+	if err := r.checkForCycles(v, nil); err != nil {
+		return nil, fmt.Errorf("invalid schema: %w", err)
 	}
 
 	reflector := &jsonschema.Reflector{
