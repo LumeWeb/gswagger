@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/invopop/jsonschema"
 	"net/http"
 	"path"
 	"strings"
+
+	"github.com/invopop/jsonschema"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/ghodss/yaml"
@@ -77,6 +78,9 @@ type Router[HandlerFunc any, MiddlewareFunc any, Route any] struct {
 	customServeHTTPHandler http.Handler
 
 	reflectorOptions *jsonschema.Reflector
+
+	// hasSchema tracks whether this router has its own schema set
+	hasSchema bool
 }
 
 // Router returns the underlying router implementation for the current context (default, group, or host)
@@ -218,6 +222,8 @@ func (r *Router[HandlerFunc, MiddlewareFunc, Route]) Host(host string) (*Router[
 // Returns the router instance for method chaining.
 func (r *Router[HandlerFunc, MiddlewareFunc, Route]) SwaggerSchema(schema *openapi3.T) *Router[HandlerFunc, MiddlewareFunc, Route] {
 	r.swaggerSchema = schema
+	r.hasSchema = true
+
 	return r
 }
 
@@ -230,6 +236,8 @@ func (r *Router[HandlerFunc, MiddlewareFunc, Route]) SetInfo(info *openapi3.Info
 		return r
 	}
 	r.swaggerSchema.Info = info
+	r.hasSchema = true
+
 	return r
 }
 
@@ -300,6 +308,10 @@ func NewRouter[HandlerFunc, MiddlewareFunc, Route any](frameworkRouter apirouter
 	}
 	root.rootRouter = root
 
+	if openapi.Info != nil {
+		root.hasSchema = true
+	}
+
 	return root, nil
 }
 
@@ -327,12 +339,63 @@ func (r *Router[HandlerFunc, MiddlewareFunc, Route]) ServeHTTP(w http.ResponseWr
 	}
 
 	// Handle swagger documentation requests
-	expectedJSONDocPath := strings.TrimPrefix(targetRouter.jsonDocumentationPath, targetRouter.pathPrefix)
-	expectedYAMLDocPath := strings.TrimPrefix(targetRouter.yamlDocumentationPath, targetRouter.pathPrefix)
+	expectedJSONDocPath := targetRouter.jsonDocumentationPath
+	expectedYAMLDocPath := targetRouter.yamlDocumentationPath
+	if pp := targetRouter.pathPrefix; pp != "" {
+		expectedJSONDocPath = pp + expectedJSONDocPath
+		expectedYAMLDocPath = pp + expectedYAMLDocPath
+	}
+
+	// Check if the current router or its host has a schema set
+	routerWithSchema := r.getRouterWithSchema(targetRouter)
+
 	if req.URL.Path == expectedJSONDocPath || req.URL.Path == expectedYAMLDocPath {
-		if handler, ok := targetRouter.router.Router(true).(http.Handler); ok {
-			handler.ServeHTTP(w, req)
-			return
+		if routerWithSchema != nil {
+			if handler, ok := routerWithSchema.router.Router(true).(http.Handler); ok {
+				// If we're delegating to a different router, we need to adjust the request path
+				if routerWithSchema != targetRouter {
+					// Clone the request
+					clonedReq := req.Clone(req.Context())
+					
+					// Determine the path adjustment needed
+					// We need to convert from targetRouter's expected path to routerWithSchema's expected path
+					var adjustedPath string
+					if req.URL.Path == expectedJSONDocPath {
+						adjustedPath = routerWithSchema.jsonDocumentationPath
+						if pp := routerWithSchema.pathPrefix; pp != "" {
+							adjustedPath = pp + adjustedPath
+						}
+					} else {
+						adjustedPath = routerWithSchema.yamlDocumentationPath
+						if pp := routerWithSchema.pathPrefix; pp != "" {
+							adjustedPath = pp + adjustedPath
+						}
+					}
+					
+					// Update the cloned request's URL
+					clonedReq.URL.Path = adjustedPath
+					if clonedReq.URL.RawPath != "" {
+						clonedReq.URL.RawPath = adjustedPath
+					}
+					
+					// Update RequestURI if present
+					if clonedReq.RequestURI != "" {
+						// Preserve query parameters if any
+						if req.URL.RawQuery != "" {
+							clonedReq.RequestURI = adjustedPath + "?" + req.URL.RawQuery
+						} else {
+							clonedReq.RequestURI = adjustedPath
+						}
+					}
+					
+					handler.ServeHTTP(w, clonedReq)
+					return
+				} else {
+					// Direct routing to the target router
+					handler.ServeHTTP(w, req)
+					return
+				}
+			}
 		}
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
@@ -377,14 +440,13 @@ func generateNewValidOpenapi(openapi *openapi3.T) (*openapi3.T, error) {
 		openapi.Paths = &openapi3.Paths{}
 	}
 
-	if openapi.Info == nil {
-		return nil, fmt.Errorf("openapi info is required")
-	}
-	if openapi.Info.Title == "" {
-		return nil, fmt.Errorf("openapi info title is required")
-	}
-	if openapi.Info.Version == "" {
-		return nil, fmt.Errorf("openapi info version is required")
+	if openapi.Info != nil {
+		if openapi.Info.Title == "" {
+			return nil, fmt.Errorf("openapi info title is required")
+		}
+		if openapi.Info.Version == "" {
+			return nil, fmt.Errorf("openapi info version is required")
+		}
 	}
 
 	return openapi, nil
@@ -456,6 +518,32 @@ func (r *Router[HandlerFunc, MiddlewareFunc, Route]) GenerateAndExposeOpenapi() 
 	// so we register the documentation handler with the path *including* the prefix.
 	r.router.AddRoute(http.MethodGet, yamlPath, r.router.SwaggerHandler("text/plain", yamlSwagger))
 
+	return nil
+}
+
+// getRouterWithSchema returns the router that has a schema set.
+// It first checks the target router, then falls back to checking
+// host-specific routers, and finally the root router.
+// Returns nil if no router with schema is found.
+func (r *Router[HandlerFunc, MiddlewareFunc, Route]) getRouterWithSchema(targetRouter *Router[HandlerFunc, MiddlewareFunc, Route]) *Router[HandlerFunc, MiddlewareFunc, Route] {
+	// Check if the current router has a schema set
+	if targetRouter.hasSchema {
+		return targetRouter
+	}
+
+	// Check if the target router's host has a schema set
+	if targetRouter.host != "" {
+		if hostRouter, ok := r.hostRouters[targetRouter.host]; ok && hostRouter.hasSchema {
+			return hostRouter
+		}
+	}
+
+	// Fall back to root router only if it has a schema
+	if r.hasSchema {
+		return r
+	}
+
+	// No router with schema found
 	return nil
 }
 
