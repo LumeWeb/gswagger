@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"path"
 	"strings"
@@ -329,6 +330,17 @@ func (r *Router[HandlerFunc, MiddlewareFunc, Route]) ServeHTTP(w http.ResponseWr
 
 	// First check if this is a swagger documentation request
 	host := req.Host
+	
+	// Normalize host by adding default port when missing (IPv6-safe, proxy-aware)
+	if _, _, err := net.SplitHostPort(host); err != nil {
+		// Missing port or not in host:port form
+		defaultPort := "80"
+		if req.TLS != nil || strings.EqualFold(req.Header.Get("X-Forwarded-Proto"), "https") {
+			defaultPort = "443"
+		}
+		host = host + ":" + defaultPort
+	}
+
 	var targetRouter *Router[HandlerFunc, MiddlewareFunc, Route]
 
 	// Select host router if exists, otherwise use root router
