@@ -68,6 +68,8 @@ type Router[HandlerFunc any, MiddlewareFunc any, Route any] struct {
 
 	host string
 
+
+
 	rootRouter *Router[HandlerFunc, MiddlewareFunc, Route]
 
 	hostRouters map[string]*Router[HandlerFunc, MiddlewareFunc, Route]
@@ -161,6 +163,12 @@ func (r *Router[HandlerFunc, MiddlewareFunc, Route]) Group(pathPrefix string) (*
 		reflectorOptions:      r.reflectorOptions,                  // Share reflector options
 		isSubrouter:           true,
 	}, nil
+}
+
+// GetPathPrefix returns the accumulated path prefix for this router.
+// For grouped routers, this includes all parent prefixes joined together.
+func (r *Router[HandlerFunc, MiddlewareFunc, Route]) GetPathPrefix() string {
+	return r.pathPrefix
 }
 
 // Host creates a new router instance configured for a specific host.
