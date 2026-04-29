@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.10.2 - 03-04-2026
+
+### Updated
+
+- several dependencies to fix CVE-2026-32285
+
+## 0.10.1 - 06-10-2025
+
 ### Refactor
 
 - renamed swagger to openapi in error messages
