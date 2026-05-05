@@ -504,7 +504,7 @@ func (r Router[_, _, _]) checkForCycles(v any, path []typeTrace) error {
 			}
 			trace.WriteString("\n")
 
-			return fmt.Errorf(trace.String())
+			return errors.New(trace.String())
 		}
 	}
 
@@ -605,6 +605,29 @@ func (r Router[_, _, _]) checkForCycles(v any, path []typeTrace) error {
 	return nil
 }
 
+func stripJSONSchemaOnlyFields(v any) {
+	switch m := v.(type) {
+	case map[string]any:
+		// contentEncoding: "base64" → format: byte (OpenAPI 3.0 equivalent)
+		if enc, ok := m["contentEncoding"]; ok {
+			if encStr, ok := enc.(string); ok && encStr == "base64" {
+				m["format"] = "byte"
+			}
+			delete(m, "contentEncoding")
+		}
+		delete(m, "contentMediaType")
+		delete(m, "contentSchema")
+		delete(m, "$defs")
+		for _, v2 := range m {
+			stripJSONSchemaOnlyFields(v2)
+		}
+	case []any:
+		for _, v2 := range m {
+			stripJSONSchemaOnlyFields(v2)
+		}
+	}
+}
+
 func (r Router[_, _, _]) getSchemaFromInterface(v any, allowAdditionalProperties bool) (*openapi3.SchemaRef, error) {
 	if v == nil {
 		return &openapi3.SchemaRef{}, nil
@@ -675,6 +698,17 @@ func (r Router[_, _, _]) getSchemaFromInterface(v any, allowAdditionalProperties
 				return nil, fmt.Errorf("failed to marshal jsonschema definition %q: %w", name, err)
 			}
 
+			// Strip JSON Schema-only fields for OpenAPI 3.0 compatibility
+			var defMap map[string]any
+			if err := json.Unmarshal(defData, &defMap); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal definition %q into map: %w", name, err)
+			}
+			stripJSONSchemaOnlyFields(defMap)
+			defData, err = json.Marshal(defMap)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal cleaned definition %q: %w", name, err)
+			}
+
 			// Unmarshal the JSON definition into an openapi3.Schema
 			oasSchema := openapi3.NewSchema()
 			if err := oasSchema.UnmarshalJSON(defData); err != nil {
@@ -691,7 +725,7 @@ func (r Router[_, _, _]) getSchemaFromInterface(v any, allowAdditionalProperties
 		}
 	}
 
-	if jsonSchema.Type == "array" && jsonSchema.Definitions != nil {
+	if jsonSchema.Definitions != nil {
 		jsonSchema.Definitions = nil
 	}
 
@@ -704,6 +738,17 @@ func (r Router[_, _, _]) getSchemaFromInterface(v any, allowAdditionalProperties
 	data, err := jsonSchema.MarshalJSON()
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal jsonschema: %w", err)
+	}
+
+	// Strip JSON Schema-only fields for OpenAPI 3.0 compatibility
+	var mainMap map[string]any
+	if err := json.Unmarshal(data, &mainMap); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal schema into map: %w", err)
+	}
+	stripJSONSchemaOnlyFields(mainMap)
+	data, err = json.Marshal(mainMap)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal cleaned schema: %w", err)
 	}
 
 	// Unmarshal the main schema JSON into an openapi3.Schema
